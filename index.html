@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Diário de Ignição</title>
+<meta name="description" content="Lê o relatório de percurso do rastreador e mostra quando cada veículo ligou e desligou, com hora e localização.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%231E4E8C'/%3E%3Cg fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='15' r='4'/%3E%3Cpath d='M10.8 12.2 19 4M16 7l3 3'/%3E%3C/g%3E%3C/svg%3E">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra do aplicativo fixa no topo; área de trabalho com cabeçalho do veículo, barra de arquivo,
+   faixa de resumo, barra de filtros, tabela com cabeçalho fixo e painel de conferência. */
+:root{
+  /* cor */
+  --bg:#F5F6F8; --surface:#FFFFFF; --surface-2:#F9FAFB; --sunk:#F1F3F5;
+  --text:#1F2937; --text-2:#6B7280; --text-3:#8A919C; --border:#E2E5E9; --border-strong:#CDD2D8;
+  --primary:#1E4E8C; --primary-hover:#183F72; --primary-ink:#FFFFFF; --primary-soft:#EAF2FF;
+  --success:#16835B; --success-soft:#E6F4EE; --warning:#B7791F; --warning-soft:#FBF3E4; --danger:#C0392B; --danger-soft:#FBECEA;
+  --neutral-soft:#EEF0F3; --row-hover:#F7F9FC; --focus:#1E4E8C;
+  /* tipo */
+  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* forma */
+  --r-sm:4px; --r:6px; --r-lg:8px;
+  --h-ctl:34px;
+  --shadow-bar:0 1px 0 var(--border);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#15181C; --surface:#1C2025; --surface-2:#20252B; --sunk:#252A31;
+  --text:#E5E7EB; --text-2:#A1A8B3; --text-3:#7D8590; --border:#2D333B; --border-strong:#3B424B;
+  --primary:#7AA7E8; --primary-hover:#93B8EE; --primary-ink:#10151C; --primary-soft:#1D2A3C;
+  --success:#45B486; --success-soft:#17302A; --warning:#DDA74A; --warning-soft:#33291A; --danger:#E7766A; --danger-soft:#3A2220;
+  --neutral-soft:#262C33; --row-hover:#22272E; --focus:#7AA7E8; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#15181C; --surface:#1C2025; --surface-2:#20252B; --sunk:#252A31;
+  --text:#E5E7EB; --text-2:#A1A8B3; --text-3:#7D8590; --border:#2D333B; --border-strong:#3B424B;
+  --primary:#7AA7E8; --primary-hover:#93B8EE; --primary-ink:#10151C; --primary-soft:#1D2A3C;
+  --success:#45B486; --success-soft:#17302A; --warning:#DDA74A; --warning-soft:#33291A; --danger:#E7766A; --danger-soft:#3A2220;
+  --neutral-soft:#262C33; --row-hover:#22272E; --focus:#7AA7E8; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.gutter{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1320px;margin:0 auto}
+h1,h2,h3{margin:0;line-height:1.25;text-wrap:balance}
+.mono{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.muted{color:var(--text-2)}
+a{color:var(--primary)}
+a:hover{color:var(--primary-hover)}
+
+/* controles */
+button,.btn{font:inherit;font-size:13px;font-weight:500;height:var(--h-ctl);padding:0 12px;border-radius:var(--r);border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;text-decoration:none}
+button:hover,.btn:hover{background:var(--surface-2);border-color:var(--text-3)}
+button:focus-visible,.btn:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:disabled:hover{background:var(--surface);border-color:var(--border-strong)}
+button svg{width:15px;height:15px;flex:none}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+.btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.btn-quiet{border-color:transparent;background:transparent;color:var(--text-2)}
+.btn-quiet:hover{background:var(--sunk);border-color:transparent;color:var(--text)}
+
+/* barra do aplicativo */
+.appbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--surface);border-bottom:1px solid var(--border)}
+.appbar .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;flex-wrap:wrap;padding-block:8px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand-mark{width:28px;height:28px;border-radius:var(--r);background:var(--primary);display:grid;place-items:center;flex:none}
+.brand-mark svg{width:16px;height:16px}
+.brand h1{font-size:15px;font-weight:700;letter-spacing:-.005em}
+.brand .ctx{font-size:13px;color:var(--text-2);padding-left:10px;border-left:1px solid var(--border);white-space:nowrap}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* área de trabalho */
+main.gutter{padding-block:20px 40px}
+main .wrap{display:flex;flex-direction:column;gap:16px}
+
+/* barra de arquivo */
+.drop{background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--r-lg);padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.drop.over{border-color:var(--primary);border-style:solid;background:var(--primary-soft)}
+.drop p{margin:0}
+.drop .lead{font-weight:600;font-size:14px}
+.drop .muted{font-size:13px}
+.drop.compact{padding:10px 14px}
+.drop.compact .lead{font-size:13px}
+.drop.compact .muted{font-size:12px}
+
+/* progresso */
+.progress{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.progress-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}
+.progress-row b{font-weight:600}
+.bar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--primary);transition:width .3s}
+
+/* avisos */
+.notice{border:1px solid var(--border);border-left-width:3px;border-radius:var(--r);padding:10px 14px;display:flex;gap:10px;align-items:flex-start;font-size:13px;background:var(--surface)}
+.notice svg{flex:none;width:16px;height:16px;margin-top:2px}
+.notice b{font-weight:600}
+/* frota */
+.fleet{display:flex;flex-direction:column;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.fleet-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.fleet-head h2{font-size:15px;font-weight:600}
+.fleet-head h2 .muted{font-weight:400}
+.fleet-box{max-height:340px}
+#fleet-tbl tbody tr.r{cursor:pointer}
+#fleet-tbl tbody tr.sel td{background:var(--primary-soft)}
+.plate-s{font-family:var(--font-data);font-weight:500;font-size:12.5px;letter-spacing:.06em;border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:0 6px;white-space:nowrap;background:var(--surface);color:var(--text);height:auto;cursor:pointer}
+#fleet-tbl tr.sel .plate-s{border-color:var(--primary);color:var(--primary)}
+.fleet-model{font-size:12px;color:var(--text-2);margin-top:2px}
+.notice.warn{border-left-color:var(--warning);background:var(--warning-soft)}
+.notice.warn svg{color:var(--warning)}
+.notice.bad{border-left-color:var(--danger);background:var(--danger-soft)}
+.notice.bad svg{color:var(--danger)}
+
+/* cabeçalho do veículo */
+.vehicle{display:flex;flex-direction:column;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.vehicle-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.plate{font-family:var(--font-data);font-weight:500;font-size:17px;letter-spacing:.08em;border:1.5px solid var(--text);border-radius:var(--r-sm);padding:1px 10px;background:var(--surface);white-space:nowrap}
+.vehicle-title{font-size:22px;font-weight:700;letter-spacing:-.01em;min-width:0;overflow-wrap:anywhere}
+.vehicle dl{margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,max-content));gap:6px 40px}
+.vehicle dl>div{min-width:0}
+.vehicle dt{font-size:12px;font-weight:500;color:var(--text-2)}
+.vehicle dd{margin:0;font-size:14px;overflow-wrap:anywhere}
+.source-note{font-size:12px;color:var(--text-2);display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center}
+.tag{display:inline-flex;align-items:center;height:20px;font-size:11px;font-weight:600;padding:0 7px;border-radius:var(--r-sm);background:var(--neutral-soft);color:var(--text-2);letter-spacing:.01em}
+.tag.sample{background:var(--primary-soft);color:var(--primary)}
+
+/* resumo: uma faixa, quatro medidas */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
+.stat{padding:12px 16px;display:flex;flex-direction:column;gap:1px;min-width:0;border-left:1px solid var(--border)}
+.stat:first-child{border-left:0}
+.stat .k{font-size:12px;font-weight:500;color:var(--text-2)}
+.stat .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.35}
+.stat .s{font-size:12px;color:var(--text-3)}
+.stat.ok .v{color:var(--success)}
+.stat.alert .v{color:var(--warning)}
+
+/* barra de filtros */
+.controls{display:flex;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.seg button{border:0;border-radius:0;height:32px;border-left:1px solid var(--border-strong)}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"]{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.day-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.day-filter .lbl{font-size:12px;font-weight:500;color:var(--text-2)}
+.days{display:flex;gap:4px;flex-wrap:wrap}
+.chip{height:30px;padding:0 10px;font-size:13px;border-radius:var(--r);font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"]{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+.chip[aria-pressed="true"]:hover{background:var(--primary-hover)}
+
+/* tabela */
+.table-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:auto;max-height:min(72vh,860px)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+th{position:sticky;top:0;z-index:2;text-align:left;font-size:12px;font-weight:600;color:var(--text-2);padding:9px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tbody tr.r:hover td{background:var(--row-hover)}
+tbody tr:last-child td{border-bottom:0}
+tr.day-row td{background:var(--sunk);font-weight:600;font-size:12px;padding:6px 14px;color:var(--text);letter-spacing:.01em}
+tr.day-row .muted{font-weight:400}
+.t{font-family:var(--font-data);font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:500;font-size:13px}
+.d{font-size:11px;color:var(--text-3);margin-top:1px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:22px;font-size:12px;font-weight:600;padding:0 8px;border-radius:var(--r-sm);white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.on{background:var(--success-soft);color:var(--success)}
+.pill.off{background:var(--neutral-soft);color:var(--text-2)}
+.loc{display:flex;flex-direction:column;gap:1px;min-width:0}
+.loc a{font-family:var(--font-data);font-size:12.5px;white-space:nowrap;text-decoration:none}
+.loc a:hover{text-decoration:underline}
+.loc .addr{font-size:12px;color:var(--text-2)}
+.dur{font-family:var(--font-data);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+th.num{text-align:right}
+.check{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--success);white-space:nowrap}
+.check.warn{color:var(--warning);font-weight:600}
+.check svg{width:13px;height:13px}
+.src{font-size:12px;color:var(--text-2);white-space:nowrap}
+.empty{padding:32px 16px;text-align:center;color:var(--text-2)}
+
+/* conferência */
+.quality{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
+.quality h2{font-size:14px;font-weight:600;padding:10px 16px;border-bottom:1px solid var(--border)}
+.quality #q-body{padding:12px 16px}
+.quality ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.quality .ok-line::marker{color:var(--success)}
+.quality li.w::marker{color:var(--warning)}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--text);color:var(--surface);padding:9px 14px;border-radius:var(--r);font-size:13px;z-index:20;max-width:calc(100% - 32px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+footer{font-size:12px;color:var(--text-2);line-height:1.6;border-top:1px solid var(--border);padding-top:14px;max-width:110ch}
+footer p{margin:0 0 6px}
+
+@media (min-width:761px) and (max-width:1100px){
+  th,td{padding-left:10px;padding-right:10px}
+  .check,.src{white-space:normal}
+}
+@media (max-width:980px){
+  .vehicle dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat:nth-child(3){border-left:0}
+  .stat:nth-child(n+3){border-top:1px solid var(--border)}
+}
+@media (max-width:760px){
+  .brand .ctx{display:none}
+  .appbar{position:static}
+  .vehicle-title{font-size:18px}
+  .vehicle dl{grid-template-columns:1fr}
+  .table-box{overflow:visible;border:0;background:transparent;max-height:none}
+  table,tbody,tr,td{display:block;width:100%}
+  thead{display:none}
+  tr.r{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);margin-bottom:8px;padding:6px 0}
+  tbody tr.r:hover td{background:transparent}
+  tr.day-row{margin:14px 0 6px}
+  tr.day-row td{background:transparent;padding:0;border:0;font-size:13px}
+  td{border:0;padding:4px 14px;display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px}
+  td.dur{text-align:left}
+  td::before{content:attr(data-l);font-family:var(--font-ui);font-size:12px;letter-spacing:0;color:var(--text-2);font-weight:500;padding-top:1px;white-space:normal}
+  #fleet-tbl tbody tr.sel{background:var(--primary-soft);border-color:var(--primary)}
+  .top-actions>button{flex:1 1 auto;justify-content:center}
+  tr.day-row td::before{content:none}
+  tr.day-row td{display:block}
+}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+
+<header class="appbar gutter">
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary-ink)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 19 4"/><path d="m16 7 3 3"/><path d="m14 9 2 2"/></svg>
+      </div>
+      <h1>Diário de Ignição</h1>
+      <span class="ctx">Relatório de percurso</span>
+    </div>
+    <div class="top-actions">
+      <button id="btn-theme" type="button" class="btn-quiet" title="Alternar tema claro/escuro">
+        <svg id="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>
+        <svg id="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <span id="theme-label">Modo escuro</span></button>
+      <button id="btn-clear" type="button" disabled title="Apagar o resultado da tela e começar de novo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
+        Limpar tudo</button>
+      <button id="btn-copy" type="button" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>
+        Copiar tabela</button>
+      <button id="btn-csv" type="button" disabled hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+        Baixar planilha (.csv)</button>
+      <button id="btn-open" type="button" class="btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4Z"/><path d="M14 3v4h4"/></svg>
+        Abrir PDF</button>
+      <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+    </div>
+  </div>
+</header>
+
+<main class="gutter">
+<div class="wrap">
+  <section id="drop" class="drop" aria-label="Enviar relatório">
+    <div>
+      <p class="lead">Arraste aqui o PDF do relatório de percurso</p>
+      <p class="muted">Aceita o relatório completo, com qualquer número de páginas. O arquivo é lido no seu navegador e não é enviado para nenhum servidor.</p>
+    </div>
+    <button id="btn-open2" type="button">Escolher arquivo</button>
+  </section>
+
+  <section id="progress" class="progress" hidden aria-live="polite">
+    <div class="progress-row"><b id="pg-title">Lendo o PDF…</b><span id="pg-eta" class="muted"></span></div>
+    <div class="bar" id="pg-meter" role="progressbar" aria-label="Progresso da leitura" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="pg-bar"></i></div>
+    <div class="progress-row"><span id="pg-detail" class="muted"></span><span style="display:flex;gap:8px"><button id="btn-diag" type="button" data-diag hidden>Copiar diagnóstico</button><button id="btn-cancel" type="button">Cancelar</button></span></div>
+  </section>
+
+  <div id="error" class="notice bad" hidden role="alert">
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>
+    <div id="error-text"></div>
+  </div>
+
+  <div id="result" hidden>
+    <div class="wrap" style="display:flex;flex-direction:column;gap:16px;max-width:none">
+      <section class="fleet" id="fleet" hidden aria-label="Frota">
+        <div class="fleet-head"><h2>Veículos neste arquivo <span class="muted" id="fleet-n"></span></h2>
+          <button type="button" id="btn-fleet-csv">Planilha da frota inteira</button></div>
+        <div class="table-box fleet-box"><table id="fleet-tbl"></table></div>
+      </section>
+      <section class="vehicle" aria-label="Veículo">
+        <div class="vehicle-head">
+          <div class="plate" id="v-plate">—</div>
+          <h2 class="vehicle-title" id="v-model">—</h2>
+        </div>
+        <dl>
+          <div><dt>Cliente</dt><dd id="v-client">—</dd></div>
+          <div><dt>Período do relatório</dt><dd id="v-period" class="mono">—</dd></div>
+          <div><dt>Registros cobertos neste arquivo</dt><dd id="v-covered" class="mono">—</dd></div>
+        </dl>
+        <div class="source-note" id="v-source"></div>
+      </section>
+
+      <div id="partial" class="notice warn" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 10v5M12 18v.5"/></svg>
+        <div id="partial-text"></div>
+      </div>
+
+      <section class="stats" aria-label="Resumo">
+        <div class="stat"><span class="k">Vezes que ligou</span><span class="v" id="s-starts">—</span><span class="s" id="s-starts-sub"></span></div>
+        <div class="stat"><span class="k">Tempo ligado</span><span class="v" id="s-time">—</span><span class="s" id="s-time-sub"></span></div>
+        <div class="stat"><span class="k">Dias com uso</span><span class="v" id="s-days">—</span><span class="s" id="s-days-sub"></span></div>
+        <div class="stat" id="s-q-box"><span class="k">Conferência</span><span class="v" id="s-q">—</span><span class="s" id="s-q-sub"></span></div>
+      </section>
+
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Modo de exibição">
+          <button type="button" id="view-usos" aria-pressed="true">Usos (ligou → desligou)</button>
+          <button type="button" id="view-eventos" aria-pressed="false">Eventos</button>
+        </div>
+        <div class="day-filter"><span class="lbl">Dia</span><div class="days" id="days" role="group" aria-label="Filtrar por dia"></div></div>
+      </div>
+
+      <div class="table-box"><table id="tbl"></table></div>
+
+      <section class="quality" aria-label="Conferência da leitura">
+        <h2>Conferência da leitura</h2>
+        <div id="q-body"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>Como funciona.</b> O relatório registra o veículo a cada minuto. O Diário de Ignição lê todos os registros e guarda só os momentos em que a coluna Ignição muda de DESLIGADA para LIGADA (ligou) ou de LIGADA para DESLIGADA (desligou), com a data, a hora e a coordenada daquele registro.</p>
+    <p>Em PDF com texto embutido, os valores vêm direto do arquivo. Em PDF escaneado ou impresso como imagem, o texto é lido por reconhecimento óptico, e cada evento é lido de novo, campo a campo, para confirmar data, hora, ignição e coordenada.</p>
+  </footer>
+</div>
+</main>
+
+<script type="application/json" id="sample-data">null</script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/tesseract.min.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const LIB = new URL("lib/", location.href).href;
+const EMB = window.__EMBED || null;   // presente só na versão em arquivo único
+const SCALE = 200 / 72;               // geometria do parser calibrada em 200 dpi
+const HEAD = ["DATA","IGNICAO","STATUS","TENSAO","EVENTO","KM/H","POSICAO","ENDERECO"];
+const ICON_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>';
+const ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 10v5M12 18v.5"/></svg>';
+
+let STATE = null;          // {meta, rows, alerts, source, fileName, pagesInFile, isSample}
+let VIEW = "usos", DAY = "all";
+let cancelFlag = false;
+
+/* ---------------- utilidades ---------------- */
+const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function tsToMs(ts){const m=/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(ts||"");return m?Date.UTC(+m[3],m[2]-1,+m[1],+m[4],+m[5],+m[6]):NaN;}
+function fmtDur(ms){if(!(ms>=0))return "—";const s=Math.round(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  if(h)return h+" h "+String(m).padStart(2,"0")+" min";if(m)return m+" min"+(ss?" "+String(ss).padStart(2,"0")+" s":"");return ss+" s";}
+function hms(ms){const s=Math.round(ms/1000);return [Math.floor(s/3600),Math.floor(s%3600/60),s%60].map(x=>String(x).padStart(2,"0")).join(":");}
+const dayOf = ts => ts.slice(0,10);
+const timeOf = ts => ts.slice(11);
+const WEEK = ["dom","seg","ter","qua","qui","sex","sáb"];
+function weekday(day){const [d,m,y]=day.split("/").map(Number);return WEEK[new Date(Date.UTC(y,m-1,d)).getUTCDay()];}
+function coordTxt(r){return r.lat==null?"":r.lat.toFixed(6).replace(/0+$/,"").replace(/\.$/,"")+", "+r.lon.toFixed(6).replace(/0+$/,"").replace(/\.$/,"");}
+function mapsUrl(r){return "https://www.google.com/maps?q="+r.lat+","+r.lon;}
+function haversineKm(a,b){const R=6371,t=x=>x*Math.PI/180,dLa=t(b.lat-a.lat),dLo=t(b.lon-a.lon);
+  const h=Math.sin(dLa/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+function toast(msg){const t=document.createElement("div");t.className="toast";t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2600);}
+function box(ws){return ws.length?{x0:Math.min(...ws.map(w=>w.b.x0)),y0:Math.min(...ws.map(w=>w.b.y0)),x1:Math.max(...ws.map(w=>w.b.x1)),y1:Math.max(...ws.map(w=>w.b.y1))}:null;}
+function joinLines(ws,u){ // agrupa palavras em linhas e lê da esquerda para a direita
+  const s=[...ws].sort((a,b)=>(a.b.y0+a.b.y1)-(b.b.y0+b.b.y1));const lines=[];
+  for(const w of s){const cy=(w.b.y0+w.b.y1)/2;const L=lines.find(l=>Math.abs(l.cy-cy)<u*0.5);if(L)L.ws.push(w);else lines.push({cy,ws:[w]});}
+  return lines.sort((a,b)=>a.cy-b.cy).map(l=>l.ws.sort((a,b)=>a.b.x0-b.b.x0).map(w=>w.t).join(" ")).join(" ");
+}
+function parseCoord(s){
+  const m=String(s).replace(/\s+/g," ").match(/(-?\d{1,3}\.\d{2,})\s*,?\s*(-?\d{1,3}\.\d{2,})/);
+  return m?{lat:parseFloat(m[1]),lon:parseFloat(m[2])}:null;
+}
+function parseCoordLenient(s){ // aceita vírgula no lugar do ponto decimal
+  return parseCoord(String(s).replace(/(\d)[,;](\d{3,})/g,"$1.$2"));
+}
+function parseIgn(s){const n=norm(s).replace(/[^A-Z]/g,"");return n==="LIGADA"?"L":n==="DESLIGADA"?"D":null;}
+
+/* ---------------- leitura de uma página (palavras com caixas) ---------------- */
+function parsePage(words){
+  const H={};
+  // cabeçalho da tabela: Ignição e Posição na mesma linha (evita confundir com textos de resumo)
+  const cyOf=b=>(b.y0+b.y1)/2,cand=n=>words.filter(w=>norm(w.t).replace(/[^A-Z/]/g,"")===n).map(w=>w.b);
+  let pair=null;for(const ig of cand("IGNICAO")){const po=cand("POSICAO").find(b=>Math.abs(cyOf(b)-cyOf(ig))<(ig.y1-ig.y0)*0.8&&b.x0>ig.x0);if(po){pair=[ig,po];break;}}
+  if(!pair)return null;
+  H.IGNICAO=pair[0];H.POSICAO=pair[1];const hcy=cyOf(pair[0]),hu=pair[0].y1-pair[0].y0;
+  for(const w of words){const n=norm(w.t).replace(/[^A-Z/]/g,"");if(HEAD.includes(n)&&!H[n]&&Math.abs(cyOf(w.b)-hcy)<hu*0.8)H[n]=w.b;}
+  const hy=Math.max(H.IGNICAO.y1,H.POSICAO.y1);
+  const u=Math.max(8,H.IGNICAO.y1-H.IGNICAO.y0);               // altura de letra = unidade
+  const xIgn=H.IGNICAO.x0, xPos=H.POSICAO.x0;
+  const xSt=H.STATUS?H.STATUS.x0:xIgn+10*u, xEnd=H.ENDERECO?H.ENDERECO.x0:xPos+8*u;
+  const foot=words.find(w=>/^P[aá]gina$/i.test(w.t)&&w.b.y0>hy);
+  const footY=foot?foot.b.y0-u*0.2:Infinity;
+  const body=words.filter(w=>w.b.y0>hy+u*0.2&&w.b.y1<=footY+u*0.1);
+  const anchors=body.filter(w=>/\d{2}\/\d{2}\/\d{4}/.test(w.t)&&w.b.x1<xIgn).sort((a,b)=>a.b.y0-b.b.y0);
+  // descarta âncoras duplicadas na mesma linha
+  const A=[];for(const a of anchors){if(!A.length||a.b.y0-A[A.length-1].b.y0>u*0.8)A.push(a);}
+  const gaps=[];for(let i=1;i<A.length;i++)gaps.push(A[i].b.y0-A[i-1].b.y0);
+  const rowH=gaps.length?gaps.sort((a,b)=>a-b)[Math.floor(gaps.length/2)]:u*8;
+  const rows=[];
+  for(let i=0;i<A.length;i++){
+    const d=A[i], top=d.b.y0-u*0.7;
+    const bot=Math.min(i+1<A.length?A[i+1].b.y0-u*0.7:Infinity, top+rowH, footY);
+    const cy=(d.b.y0+d.b.y1)/2;
+    const inRow=body.filter(w=>{const y=(w.b.y0+w.b.y1)/2;return y>=top&&y<bot;});
+    const line=inRow.filter(w=>Math.abs((w.b.y0+w.b.y1)/2-cy)<u*0.75);
+    const dtWords=line.filter(w=>w.b.x0>=d.b.x0-2&&w.b.x1<xIgn-u*0.2).sort((a,b)=>a.b.x0-b.b.x0);
+    const dtTxt=dtWords.map(w=>w.t).join(" ");
+    const m=/(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2}:\d{2})/.exec(dtTxt);
+    const ignWords=line.filter(w=>w.b.x0>=xIgn-u&&w.b.x0<xSt-u*0.5);
+    const posWords=inRow.filter(w=>w.b.x0>=xPos-u*1.5&&w.b.x0<xEnd-u*0.8);
+    const addrWords=inRow.filter(w=>w.b.x0>=xEnd-u*0.8);
+    const posTxt=joinLines(posWords,u), cs=parseCoord(posTxt), c=cs||parseCoordLenient(posTxt);
+    const ignTxt=ignWords.map(w=>w.t).join(" ");
+    const r={k:i+1,ts:m?m[1]+" "+m[2]:null,raw:{dt:dtTxt,ign:ignTxt,pos:posTxt},ign:parseIgn(ignTxt),
+      lat:c?c.lat:null,lon:c?c.lon:null,posLenient:!cs,addr:joinLines(addrWords,u).replace(/^[—–\-|\s]+/,"").trim(),
+      boxes:{dt:box(dtWords),ign:box(ignWords),pos:box(posWords)},errs:[]};
+    if(!r.ts)r.errs.push("data/hora");
+    if(!r.ign)r.errs.push("ignição");
+    rows.push(r);
+  }
+  let footBox=null;
+  if(foot){const fl=words.filter(w=>Math.abs((w.b.y0+w.b.y1)/2-(foot.b.y0+foot.b.y1)/2)<u*0.6&&w.b.x0>=foot.b.x0-2);footBox=box(fl);}
+  return {rows,u,geo:{hy,u,xIgn,xSt,xPos,xEnd,rowH,foot:footBox,footY}};
+}
+
+/* ---------------- texto embutido -> palavras ---------------- */
+function headText(ws){ // texto da página em linhas, pela posição (o PDF guarda os textos fora de ordem)
+  if(!ws.length)return "";const hs=ws.map(w=>w.b.y1-w.b.y0).sort((a,b)=>a-b),u=hs[hs.length>>1]||10;
+  const s=[...ws].sort((a,b)=>(a.b.y0+a.b.y1)-(b.b.y0+b.b.y1)),lines=[];
+  for(const w of s){const cy=(w.b.y0+w.b.y1)/2;const L=lines.find(l=>Math.abs(l.cy-cy)<u*0.6);if(L)L.ws.push(w);else lines.push({cy,ws:[w]});}
+  return lines.sort((a,b)=>a.cy-b.cy).slice(0,14).map(l=>l.ws.sort((a,b)=>a.b.x0-b.b.x0).map(w=>w.t).join(" ")).join("\n");
+}
+function sectionName(ws){ // título grande da página (ex.: "Paradas"), fora o título do relatório
+  const hs=ws.map(w=>w.b.y1-w.b.y0),mx=Math.max(...hs);
+  const t=headText(ws.filter(w=>w.b.y1-w.b.y0>=mx*0.9)).replace(/Relat[óo]rio\s+de\s+percurso/i,"").replace(/\s+/g," ").trim();
+  return t&&t.length<=40?t:"";
+}
+function textWords(tc, viewport){
+  const items=[];
+  for(const it of tc.items){
+    if(!it.str||!it.str.trim())continue;
+    const t=pdfjsLib.Util.transform(viewport.transform,it.transform);
+    const fh=Math.hypot(t[2],t[3]);if(!fh)continue;
+    const ang=Math.atan2(t[1],t[0]);
+    items.push({it,t,fh,ang});
+  }
+  if(!items.length)return [];
+  // direção dominante do texto, arredondada para múltiplo de 90°
+  const cnt={};for(const x of items){const q=Math.round(x.ang/(Math.PI/2));cnt[q]=(cnt[q]||0)+x.it.str.length;}
+  const q=+Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0];const th=q*Math.PI/2,co=Math.round(Math.cos(th)),si=Math.round(Math.sin(th));
+  const rot=(x,y)=>[x*co+y*si,-x*si+y*co];
+  const words=[];
+  for(const {it,t,fh,ang} of items){
+    if(Math.round(ang/(Math.PI/2))!==q)continue;
+    const [bx,by]=rot(t[4],t[5]);
+    const w=(it.width||0)*viewport.scale;const str=it.str;const cw=str.length?w/str.length:0;
+    const re=/\S+/g;let mm;
+    while((mm=re.exec(str))){
+      const x0=bx+mm.index*cw;words.push({t:mm[0],b:{x0,y0:by-fh*0.8,x1:x0+mm[0].length*cw,y1:by+fh*0.2}});
+    }
+  }
+  return words;
+}
+
+/* ---------------- motor de OCR ---------------- */
+// cada leitor paralelo tem dois motores: "page" (português) lê a página e faz a 3ª leitura; "ver" (inglês) faz a 2ª leitura
+let OCR=null,OCR_P=null;
+function ocrEngine(n){if(!OCR_P)OCR_P=createEngine(n).catch(e=>{OCR_P=null;throw e;});return OCR_P;}
+// dicionários do OCR, publicados junto com a página (base64 de .traineddata.gz)
+async function langData(code){
+  if(EMB){const b=atob(EMB.lang[code]),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;}
+  const r=await fetch(LIB+"lang/"+code+".traineddata.gz.txt");if(!r.ok)throw new Error("não consegui baixar o dicionário do leitor ("+r.status+")");
+  const b=atob((await r.text()).trim()),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;
+}
+async function createEngine(n){
+  if(typeof Tesseract==="undefined")throw new Error("O leitor de texto não carregou. Recarregue a página e tente de novo.");
+  const opts={workerPath:EMB?EMB.tessWorker:LIB+"worker.min.js",corePath:EMB?EMB.core:LIB+"core",cacheMethod:"none",workerBlobURL:false};
+  const [por,eng]=await Promise.all([langData("por"),langData("eng")]);
+  const L=(code,data)=>[{code,data:data.slice()}];
+  const slots=await Promise.all([...Array(n)].map(async()=>{
+    const [page,ver]=await Promise.all([Tesseract.createWorker(L("por",por),1,opts),Tesseract.createWorker(L("eng",eng),1,opts)]);
+    await page.setParameters({tessedit_pageseg_mode:"6"});return {page,ver};}));
+  OCR={n,slots};return OCR;
+}
+function wordsFromOcr(data){
+  const ws=[];for(const b of data.blocks||[])for(const p of b.paragraphs)for(const l of p.lines)for(const w of l.words)ws.push({t:w.text,c:w.confidence,b:w.bbox});
+  return ws;
+}
+function cropCanvas(src,b,px,py,mult){
+  const w=b.x1-b.x0+2*px,h=b.y1-b.y0+2*py,c=document.createElement("canvas");c.width=Math.round(w*mult);c.height=Math.round(h*mult);
+  const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);g.imageSmoothingEnabled=true;g.imageSmoothingQuality="high";
+  g.drawImage(src,b.x0-px,b.y0-py,w,h,0,0,c.width,c.height);return c;
+}
+// leituras extras, campo a campo, com alfabeto restrito; vale o valor em que 2 leituras concordam
+const FIELDS={
+  dt:{psm:"7",wl:"0123456789/: ",norm:t=>{const m=/(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2}:\d{2})/.exec(t);return m?m[1]+" "+m[2]:null;}},
+  ign:{psm:"7",wl:"ADEGILS",norm:t=>parseIgn(t)},
+  pos:{psm:"6",wl:"0123456789-.,",norm:t=>{const c=parseCoord(t);return c?c.lat+","+c.lon:null;}}
+};
+function primaryOf(r,f){if(f==="dt")return r.ts;if(f==="ign")return r.ign;return r.lat!=null&&!r.posLenient?r.lat+","+r.lon:null;}
+function lenientOf(r,f){if(f==="pos"){const c=parseCoordLenient(r.raw.pos||"");return c?c.lat+","+c.lon:null;}return primaryOf(r,f);}
+async function voteRow(canvas,r,u,fields,slot){
+  const E=OCR.slots[slot%OCR.slots.length];
+  const read=async(w,f,mult)=>{const b=r.boxes[f];if(!b)return null;const F=FIELDS[f];
+    await w.setParameters({tessedit_pageseg_mode:F.psm,tessedit_char_whitelist:F.wl});
+    const t=(await w.recognize(cropCanvas(canvas,b,u*0.7,u*0.45,mult))).data.text.trim().replace(/\s+/g," ");return F.norm(t);};
+  const info={},result={ok:true};
+  try{
+    for(const f of fields){
+      const p=primaryOf(r,f), v2=await read(E.ver,f,2);
+      let final=null,reads=[lenientOf(r,f),v2];
+      if(p&&p===v2)final=p;
+      else{const v3=await read(E.page,f,3);reads.push(v3);
+        const c={};for(const x of reads)if(x)c[x]=(c[x]||0)+1;
+        const best=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];if(best&&best[1]>=2)final=best[0];}
+      info[f]={final,reads};
+      if(final==null){result.ok=false;continue;}
+      if(f==="dt")r.ts=final;else if(f==="ign")r.ign=final;else{const [la,lo]=final.split(",").map(Number);r.lat=la;r.lon=lo;r.posLenient=false;}
+    }
+  }finally{await E.page.setParameters({tessedit_pageseg_mode:"6",tessedit_char_whitelist:""});}
+  result.info=info;return result;
+}
+async function readAddr(canvas,r,u,slot){
+  if(!r.boxes.addr||r.addr)return;
+  const E=OCR.slots[slot%OCR.slots.length];
+  const t=(await E.page.recognize(cropCanvas(canvas,r.boxes.addr,u*0.3,u*0.45,1))).data;
+  r.addr=joinLines(wordsFromOcr(t),u).replace(/^[—–\-|\s]+/,"").trim();
+}
+function refreshErrs(r){r.errs=[];if(!r.ts)r.errs.push("data/hora");if(!r.ign)r.errs.push("ignição");}
+// leitura rápida: só a faixa de data, hora e ignição (layout aprendido na primeira página)
+function parseStrip(words,g){
+  const u=g.u, body=words.filter(w=>w.b.y0>g.hy+u*0.2&&w.b.y1<=g.footY+u*0.1);
+  const anchors=body.filter(w=>/\d{2}\/\d{2}\/\d{4}/.test(w.t)&&w.b.x1<g.xIgn).sort((a,b)=>a.b.y0-b.b.y0);
+  const A=[];for(const a of anchors){if(!A.length||a.b.y0-A[A.length-1].b.y0>u*0.8)A.push(a);}
+  const rows=[];
+  for(let i=0;i<A.length;i++){
+    const d=A[i],top=d.b.y0-u*0.7,bot=Math.min(i+1<A.length?A[i+1].b.y0-u*0.7:Infinity,top+g.rowH,g.footY),cy=(d.b.y0+d.b.y1)/2;
+    const line=body.filter(w=>{const y=(w.b.y0+w.b.y1)/2;return y>=top&&y<bot&&Math.abs(y-cy)<u*0.75;});
+    const dtWords=line.filter(w=>w.b.x0>=d.b.x0-2&&w.b.x1<g.xIgn-u*0.2).sort((a,b)=>a.b.x0-b.b.x0);
+    const dtTxt=dtWords.map(w=>w.t).join(" "),m=/(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2}:\d{2})/.exec(dtTxt);
+    const ignWords=line.filter(w=>w.b.x0>=g.xIgn-u&&w.b.x0<g.xSt-u*0.5),ignTxt=ignWords.map(w=>w.t).join(" ");
+    const y0=d.b.y0-u*0.3,y1=Math.min(bot,d.b.y1+u*2.2);
+    const r={k:i+1,ts:m?m[1]+" "+m[2]:null,raw:{dt:dtTxt,ign:ignTxt,pos:""},ign:parseIgn(ignTxt),lat:null,lon:null,posLenient:true,addr:"",
+      boxes:{dt:box(dtWords),ign:box(ignWords),pos:{x0:g.xPos-u*1.2,x1:g.xEnd-u*1.0,y0,y1},addr:{x0:g.xEnd-u*0.8,x1:g.W-2,y0,y1}},errs:[]};
+    refreshErrs(r);rows.push(r);
+  }
+  return {rows,u};
+}
+
+/* ---------------- processamento do arquivo ---------------- */
+async function processFile(file){
+  hideError();cancelFlag=false;DAY="all";VEH=null;
+  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf"){showError("Esse arquivo não é um PDF. Escolha o PDF do relatório de percurso.");return;}
+  if(typeof pdfjsLib==="undefined"){showError("O leitor de PDF não carregou. Recarregue a página e tente de novo.");return;}
+  setBusy(true);progress(0,"Abrindo "+file.name+"…","","");
+  let pdf;
+  try{pdfjsLib.GlobalWorkerOptions.workerSrc=EMB?EMB.pdfWorker:LIB+"pdf.worker.min.js";
+    pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;}
+  catch(e){setBusy(false);showError("Não consegui abrir esse PDF. Ele pode estar protegido por senha ou corrompido.");return;}
+  const N=pdf.numPages, pages=new Array(N), t0=performance.now();
+  let done=0, mode=null, ocrUsed=0;DIAG=null;$("#btn-diag").hidden=true;$("#result").hidden=true;
+  const alerts=[];
+  // 1) tenta texto embutido em cada página; 2) se não houver, OCR
+  const maxConc=(navigator.deviceMemory&&navigator.deviceMemory<=4)?3:6;
+  const conc=Math.max(1,Math.min(maxConc,navigator.hardwareConcurrency||4));
+  let LAYOUT=null;   // geometria da tabela aprendida na primeira página lida por OCR
+  let learning=null; // enquanto um leitor aprende o layout, os outros esperam por ele
+  let failedFull=0;  // páginas lidas inteiras sem achar a tabela (antes de aprender o layout)
+  let next=1;
+  const tick=()=>{done++;const el=(performance.now()-t0)/1000,eta=done<N?el/done*(N-done):0;
+    progress(done/N,(mode==="ocr"?(DIAG?"Há páginas de percurso com texto que não reconheci: lendo por OCR (mais lento)…":"Lendo as páginas (imagem, com OCR)…"):"Lendo as páginas…"),
+      "Página "+done+" de "+N+" · "+pages.filter(Boolean).reduce((s,p)=>s+p.rows.length,0)+" registros",
+      eta>3?"faltam cerca de "+fmtEta(eta):"");};
+  async function doPage(i,slot,forceOcr){
+    const page=await pdf.getPage(i);
+    const vp0=page.getViewport({scale:SCALE});
+    const tc=await page.getTextContent();
+    const tw=textWords(tc,vp0);
+    let parsed=tw.length>20?parsePage(tw):null, how="texto";
+    let footer=null;const ft=/P[áa]gina\s+(\d+)\s+de\s+(\d+)/.exec(tw.map(w=>w.t).join(" "));if(ft)footer=[+ft[1],+ft[2]];
+    let headTxt=headText(tw);
+    if(!parsed&&tw.length>20&&!forceOcr){
+      // página com texto, mas sem a tabela de percurso (Paradas, Resumo...): não vai para o OCR agora.
+      // Só se nenhuma página do arquivo for lida pelo texto é que essas páginas passam pelo OCR, no fim.
+      const sec=sectionName(tw);
+      if(!DIAG&&tw.some(w=>norm(w.t).replace(/[^A-Z]/g,"")==="IGNICAO")&&!/Paradas|Resumo/i.test(sec))DIAG=buildDiag(tc,vp0,i,tw);
+      page.cleanup();pages[i-1]={pdfPage:i,footer,how:"texto",rows:[],skipped:true,deferred:true,section:sec||"outra seção",head:headTxt};return;
+    }
+    if(!parsed){
+      how="ocr";mode="ocr";ocrUsed++;
+      if(!OCR)progress(done/N,"Preparando o leitor de imagem…",forceOcr?"O texto deste PDF está num formato que não reconheci; vou ler as páginas por OCR.":"Este PDF não tem texto embutido; vou ler as páginas por OCR.","");
+      const eng=await ocrEngine(conc);
+      const wk=eng.slots[slot%eng.slots.length].page;
+      if(!LAYOUT&&learning)await learning;
+      let doneLearning=null;if(!LAYOUT&&!learning)learning=new Promise(r=>doneLearning=r);
+      const render=async rot=>{const vp=page.getViewport({scale:SCALE,rotation:(page.rotate+rot)%360});
+        const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);
+        const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);
+        await page.render({canvasContext:g,viewport:vp}).promise;return cv;};
+      // caminho rápido: layout conhecido, lê só a faixa de data/hora/ignição
+      if(LAYOUT){
+        const g=LAYOUT.geo,cv=await render(LAYOUT.rot);
+        const top=Math.max(0,Math.round(g.hy)),bottom=Math.min(cv.height,Math.round(isFinite(g.footY)?g.footY:cv.height));
+        const res=await wk.recognize(cv,{rectangle:{left:0,top,width:Math.round(g.xSt-g.u*0.5),height:bottom-top}},{text:true,blocks:true});
+        const st=parseStrip(wordsFromOcr(res.data),{...g,W:cv.width});
+        if(g.foot){const fb=g.foot,pad=g.u;const fr=await wk.recognize(cv,{rectangle:{left:Math.max(0,Math.round(fb.x0-pad*4)),top:Math.max(0,Math.round(fb.y0-pad*0.6)),width:Math.round(Math.min(cv.width,fb.x1+pad*4)-Math.max(0,fb.x0-pad*4)),height:Math.round(fb.y1-fb.y0+pad*1.2)}},{text:true});
+          const f=/P[áa]gina\s+(\d+)\s+de\s+(\d+)/.exec(fr.data.text);footer=f?[+f[1],+f[2]]:null;}
+        const isLast=footer&&footer[0]===footer[1];
+        if(st.rows.length&&(st.rows.length>=LAYOUT.rows||isLast||i===N)){
+          for(const r of st.rows){if(r.errs.length){const f=[];if(!r.ts)f.push("dt");if(!r.ign)f.push("ign");await voteRow(cv,r,st.u,f,slot);refreshErrs(r);}}
+          for(let k=1;k<st.rows.length;k++){const r=st.rows[k];
+            if(r.errs.length||st.rows[k-1].errs.length)continue;
+            if(r.ign!==st.rows[k-1].ign){const v=await voteRow(cv,r,st.u,["dt","ign","pos"],slot);r.v=v.ok?1:0;r.vinfo=v.info;await readAddr(cv,r,st.u,slot);}
+          }
+          parsed=st;headTxt=null;
+        }
+        cv.width=cv.height=0;
+      }
+      // caminho completo: página inteira (primeira página, ou quando a faixa não bate)
+      if(!parsed&&!LAYOUT&&failedFull>=3){if(doneLearning){learning=null;doneLearning();}page.cleanup();pages[i-1]={pdfPage:i,footer,how:"ocr",rows:[],skipped:true,head:null};return;}
+      if(!parsed){
+        for(const rot of (LAYOUT?[LAYOUT.rot,90,0,270,180]:[90,0,270,180])){
+          const cv=await render(rot);
+          const res=await wk.recognize(cv,{},{text:true,blocks:true});
+          parsed=parsePage(wordsFromOcr(res.data));
+          if(parsed){
+            headTxt=res.data.text;const f=/P[áa]gina\s+(\d+)\s+de\s+(\d+)/.exec(res.data.text);footer=f?[+f[1],+f[2]]:null;
+            if(!LAYOUT&&parsed.rows.length)LAYOUT={rot,geo:parsed.geo,rows:parsed.rows.length};
+            for(const r of parsed.rows){if(r.errs.length){const f=[];if(!r.ts)f.push("dt");if(!r.ign)f.push("ign");await voteRow(cv,r,parsed.u,f,slot);refreshErrs(r);}}
+            for(let k=1;k<parsed.rows.length;k++){const r=parsed.rows[k];
+              if(r.errs.length||parsed.rows[k-1].errs.length)continue;
+              if(r.ign!==parsed.rows[k-1].ign){const v=await voteRow(cv,r,parsed.u,["dt","ign","pos"],slot);r.v=v.ok?1:0;r.vinfo=v.info;}
+            }
+            parsed.rot=rot;
+            cv.width=cv.height=0;break;
+          }
+          cv.width=cv.height=0;
+        }
+      }
+      if(parsed&&parsed.rot===undefined&&LAYOUT)parsed.rot=LAYOUT.rot;
+      if(!parsed&&!LAYOUT)failedFull++;
+      if(doneLearning){learning=null;doneLearning();}
+    }
+    page.cleanup();
+    pages[i-1]=parsed?{pdfPage:i,footer,how,rot:parsed.rot,u:parsed.u,rows:parsed.rows,head:headTxt}:{pdfPage:i,footer,how,rows:[],skipped:true,head:headTxt};
+  }
+  let shown=0;
+  const prefixLen=()=>{let k=0;while(k<N&&pages[k])k++;return k;};
+  function maybePartial(){const k=prefixLen();if(k<N&&k>=shown+100&&!cancelFlag){const st=assemble(pages.slice(0,k-(k%100)),true);if(st.rows.length){shown=k-(k%100);STATE=st;DAY=DAY||"all";render();}}}
+  function lastIgnBefore(j){for(let k=j-1;k>=1;k--){const q=pages[k-1];if(!q)return undefined;const l=q.rows.filter(r=>r.ign).pop();if(l)return l.ign;}return null;}
+  async function checkBoundary(j,slot){
+    const p=pages[j-1];if(!p||p.skipped||p.how!=="ocr"||p.bchecked)return;
+    const r=p.rows[0];if(!r||r.errs.length||r.v!==undefined){p.bchecked=true;return;}
+    const prev=lastIgnBefore(j);if(prev===undefined)return;
+    p.bchecked=true;
+    if(!((prev===null&&r.ign==="L")||(prev&&r.ign!==prev)))return;
+    const page=await pdf.getPage(j),vp=page.getViewport({scale:SCALE,rotation:(page.rotate+(p.rot||0))%360});
+    const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);
+    const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);await page.render({canvasContext:g,viewport:vp}).promise;
+    const v=await voteRow(cv,r,p.u,["dt","ign","pos"],slot);r.v=v.ok?1:0;r.vinfo=v.info;await readAddr(cv,r,p.u,slot);
+    cv.width=cv.height=0;page.cleanup();
+  }
+  try{
+    await Promise.all([...Array(conc)].map(async(_,slot)=>{while(next<=N){if(cancelFlag)return;const i=next++;await doPage(i,slot);
+      if(pages[i-1]&&pages[i-1].how==="ocr"){await checkBoundary(i,slot);for(let j=i+1;j<=N&&pages[j-1];j++){await checkBoundary(j,slot);if(pages[j-1].rows.some(r=>r.ign))break;}}
+      tick();maybePartial();}}));
+  }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
+  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  // texto embutido em formato desconhecido: nenhuma página saiu pelo texto, então lê as páginas adiadas por OCR
+  try{
+    const deferred=pages.filter(p=>p&&p.deferred).map(p=>p.pdfPage);
+    if(deferred.length&&!pages.some(p=>p&&p.how==="texto"&&p.rows.length)){
+      let k=0;const tot=deferred.length;
+      await Promise.all([...Array(conc)].map(async(_,slot)=>{while(deferred.length){if(cancelFlag)return;const i=deferred.shift();await doPage(i,slot,true);k++;
+        progress(k/tot,"Lendo as páginas por OCR (texto do PDF em formato que não reconheci)…","Página "+k+" de "+tot,"");}}));
+    }
+    for(const p of pages)if(p)delete p.deferred;
+  }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
+  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  // confere os eventos que caem na primeira linha de uma página (a página anterior é lida em paralelo)
+  try{
+    const todo=[];let prevIgn=null,first=true;
+    for(const p of pages){if(!p||p.skipped||p.how!=="ocr"){if(p&&p.rows.length){const l=p.rows.filter(r=>r.ign).pop();if(l)prevIgn=l.ign;first=false;}continue;}
+      const r=p.rows[0];
+      if(r&&!r.errs.length&&r.v===undefined&&((first&&r.ign==="L")||(prevIgn&&r.ign!==prevIgn)))todo.push(p);
+      const l=p.rows.filter(x=>x.ign).pop();if(l)prevIgn=l.ign;first=false;}
+    if(todo.length){
+      const eng=await ocrEngine(conc);let n=0;
+      await Promise.all(eng.slots.map(async(_,slot)=>{while(todo.length){if(cancelFlag)return;const p=todo.shift();
+        progress(1,"Conferindo eventos na virada de página…",(++n)+" de "+(n+todo.length),"");
+        const page=await pdf.getPage(p.pdfPage),vp=page.getViewport({scale:SCALE,rotation:(page.rotate+(p.rot||0))%360});
+        const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);
+        const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);await page.render({canvasContext:g,viewport:vp}).promise;
+        const r=p.rows[0];const v=await voteRow(cv,r,p.u,["dt","ign","pos"],slot);r.v=v.ok?1:0;r.vinfo=v.info;await readAddr(cv,r,p.u,slot);
+        cv.width=cv.height=0;page.cleanup();}}));
+    }
+  }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
+  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  const fin=assemble(pages,false);
+  if(!fin.rows.length){STATE=null;setBusy(false);$("#result").hidden=true;$("#btn-copy").disabled=true;$("#btn-clear").disabled=true;
+    showError("Não encontrei a tabela do relatório de percurso (colunas Data, Ignição e Posição) em nenhuma página deste PDF."+(DIAG?' Ele tem texto embutido num formato que eu ainda não conheço. <button type="button" data-diag>Copiar diagnóstico</button> e cole no chat com o Claude para ajustar.':''));
+    window.__lastResult={rows:[],failed:true};return;}
+  STATE=fin;window.__lastResult=STATE;
+  setBusy(false);DAY=DAY||"all";render();
+  function assemble(list,partial){
+  // veículo de cada página, pelo cabeçalho (arquivo de frota: vários carros no mesmo PDF)
+  const vehMeta={},vehOrder=[];let cur=null;
+  for(const p of list){
+    if(p.head){const m=parseMeta(p.head),key=m.plate||m.vehicle;
+      if(key){cur=key;if(!vehMeta[key]){vehMeta[key]=m;vehOrder.push(key);}else for(const f in m)if(!vehMeta[key][f]&&m[f])vehMeta[key][f]=m[f];}}
+    p.veh=cur;
+  }
+  for(const p of list){if(p.veh)break;p.veh=vehOrder[0]||"";}
+  for(const p of list)if(p.veh==null)p.veh="";
+  const multi=vehOrder.length>1;
+  const alerts=[],notes=[],fpAll=list.map(p=>({fp:p.footer?p.footer[0]:null,tot:p.footer?p.footer[1]:null,veh:p.veh}));
+  for(let a=0;a<list.length;){const p=list[a];if(!p.skipped){a++;continue;}let b=a;while(b+1<list.length&&list[b+1].skipped&&list[b+1].section===p.section&&list[b+1].veh===p.veh)b++;
+    const rng=a===b?"Página "+p.pdfPage:"Páginas "+p.pdfPage+" a "+list[b].pdfPage;
+    if(p.section)notes.push({veh:p.veh,t:rng+": seção "+(p.section==="Paradas"?"“Paradas” do relatório (resumo de paradas por movimento, não é a ignição), não usada aqui.":p.section!=="outra seção"?"“"+p.section+"” do relatório, sem a tabela de percurso; não usada aqui.":"sem tabela de percurso, não usada aqui.")});
+    else alerts.push({veh:p.veh,lvl:"w",page:p.pdfPage,msg:(a===b?"":"até a pág. "+list[b].pdfPage+": ")+"não encontrei a tabela de percurso (ignorada)"});
+    a=b+1;}
+  const meta=vehOrder.length?vehMeta[vehOrder[0]]:parseMeta(list.filter(p=>p.head).map(p=>p.head).join("\n"));
+  const vehicles=vehOrder.length?vehOrder.map(k=>({key:k,meta:vehMeta[k]})):[{key:"",meta}];
+  const rows=[];
+  const perPage=list.filter(p=>!p.skipped).map(p=>p.rows.length);
+  const R=mode_(perPage);
+  const totalReport=Math.max(0,...list.map(p=>p.footer?p.footer[1]:0));
+  let prevFooter=null,prevVeh=null;
+  for(let j=0;j<list.length;j++){const p=list[j];
+    const fp=p.footer?p.footer[0]:null;
+    if(p.veh!==prevVeh){prevFooter=null;prevVeh=p.veh;}
+    if(p.skipped){if(fp)prevFooter=fp;continue;}
+    if(fp&&prevFooter&&fp!==prevFooter+1)alerts.push({veh:p.veh,lvl:"w",page:p.pdfPage,msg:"a numeração do relatório pula da página "+prevFooter+" para a "+fp+"; pode faltar página no PDF"});
+    if(fp)prevFooter=fp;
+    const isLast=(p.footer&&p.footer[0]===p.footer[1])||(list[j+1]&&(list[j+1].veh!==p.veh||list[j+1].skipped));
+    if(p.rows.length!==R&&!isLast&&p.pdfPage!==N&&p!==list[list.length-1])alerts.push({veh:p.veh,lvl:"w",page:p.pdfPage,msg:"li "+p.rows.length+" registros nesta página (as outras têm "+R+"); confira se alguma linha ficou de fora"});
+    for(const r of p.rows){
+      const row={p:p.pdfPage,fp,k:r.k,ts:r.ts,ign:r.ign,lat:r.lat,lon:r.lon,addr:r.addr,how:p.how};
+      if(multi)row.veh=p.veh;
+      if(r.errs.length){row.bad=r.errs;alerts.push({veh:p.veh,lvl:"w",page:p.pdfPage,line:r.k,msg:"não consegui ler "+r.errs.join(", ")+" ("+esc(r.raw.dt||"sem data")+")"});}
+      if(r.v!==undefined){row.v=r.v;if(!r.v){row.vx={};for(const f in r.vinfo)if(r.vinfo[f].final==null)row.vx[f]=r.vinfo[f].reads.filter(Boolean);}}
+      if(row.v!==1&&!row.bad)row.raw=r.raw;
+      rows.push(row);
+    }
+  }
+  if(multi)for(const v of vehicles)if(!rows.some(r=>r.veh===v.key))v.empty=true;
+  return {meta,vehicles:multi?vehicles:null,rows,alerts,fileName:file.name,pagesInFile:N,totalReport,mode:mode==="ocr"?(ocrUsed===N?"ocr":"misto"):"texto",rowsPerPage:R,isSample:false,
+    seconds:Math.round((performance.now()-t0)/1000),partialOf:partial?{done:list.length,N}:null,notes,fpAll,diag:rows.some(r=>r.how==="texto")?null:DIAG};
+  }
+}
+let DIAG=null;
+function buildDiag(tc,vp,pageNo,tw){
+  const L=["DIAGNOSTICO Diario de Ignicao · pagina "+pageNo+" · "+tc.items.length+" itens de texto · viewport "+Math.round(vp.width)+"x"+Math.round(vp.height),
+    "cabecalhos achados: "+HEAD.filter(h=>tw.some(w=>norm(w.t).replace(/[^A-Z/]/g,"")===h)).join(", "),"x y ang alt larg | texto"];
+  for(const it of tc.items.slice(0,350)){if(!it.str||!it.str.trim())continue;const t=pdfjsLib.Util.transform(vp.transform,it.transform);
+    L.push([Math.round(t[4]),Math.round(t[5]),Math.round(Math.atan2(t[1],t[0])*180/Math.PI),Math.round(Math.hypot(t[2],t[3])),Math.round((it.width||0)*vp.scale)].join(" ")+" | "+it.str);}
+  return L.join("\n");
+}
+async function copyDiag(){const t=DIAG||(STATE&&STATE.diag);if(!t)return;
+  try{await navigator.clipboard.writeText(t);toast("Diagnóstico copiado. Cole no chat com o Claude.");}
+  catch(e){const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy");}catch(_){}ta.remove();toast(ok?"Diagnóstico copiado. Cole no chat com o Claude.":"Não consegui copiar.");}}
+document.addEventListener("click",e=>{if(e.target.closest("[data-diag]"))copyDiag();});
+function mode_(a){const c={};let best=0,v=0;for(const x of a){c[x]=(c[x]||0)+1;if(c[x]>best){best=c[x];v=x;}}return v;}
+function fmtEta(s){s=Math.round(s);return s<60?s+" s":Math.round(s/60)+" min";}
+function parseMeta(txt){
+  const t=txt.replace(/[ \t]+/g," ");
+  const g=re=>{const m=re.exec(t);return m?m[1].trim():"";};
+  const veic=g(/Ve[ií]culo\s+([^\n]+?)(?:\s+Per[ií]odo|\n|$)/i);
+  const per=/Per[ií]odo\s+(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2})\s*-\s*(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2})/i.exec(t);
+  return {client:g(/Cliente\s+(.+?)(?:\s+Data\s+\d|\n|$)/i),vehicle:veic,plate:((veic.match(/^[A-Z]{3}-?\d[A-Z0-9]\d{2}\b/)||[""])[0]).replace("-",""),
+    period:per?per[1].replace(/\s+/," ")+" a "+per[2].replace(/\s+/," "):"",emitted:g(/Data\s+(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2})/i)};
+}
+
+/* ---------------- eventos e usos ---------------- */
+function build(rows){
+  const known=rows.filter(r=>r.ign&&r.ts).map(r=>({...r,t:tsToMs(r.ts)}));
+  const events=[];let prev=null,gap=false;
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i];
+    if(!r.ign||!r.ts){gap=true;continue;}
+    const row={...r,t:tsToMs(r.ts)};
+    if(!prev){if(row.ign==="L")events.push({type:"L",row,atStart:true});prev=row;gap=false;continue;}
+    if(row.ign!==prev.ign)events.push({type:row.ign,row,uncertain:gap,prevRow:prev});
+    prev=row;gap=false;
+  }
+  const usos=[];let open=null;
+  for(const e of events){
+    if(e.type==="L"){if(open)usos.push({start:open,end:null});open=e;}
+    else{usos.push({start:open,end:e});open=null;}
+  }
+  const last=known[known.length-1];
+  if(open)usos.push({start:open,end:null,openEnd:true,lastRow:last});
+  return {events,usos,first:known[0],last};
+}
+
+/* ---------------- tela ---------------- */
+let VEH=null;
+function vehList(S){return S.vehicles&&S.vehicles.length>1?S.vehicles:null;}
+function curView(){
+  const {_v,_b,...S}=STATE,vs=vehList(S);if(!vs)return S;
+  if(!vs.some(v=>v.key===VEH&&!v.empty))VEH=(vs.find(v=>!v.empty)||vs[0]).key;
+  const fp=(S.fpAll||[]).filter(x=>x&&x.veh===VEH);
+  return {...S,meta:vs.find(v=>v.key===VEH).meta,rows:S.rows.filter(r=>r.veh===VEH),alerts:S.alerts.filter(a=>a.veh===VEH),
+    notes:(S.notes||[]).filter(n=>typeof n==="string"||n.veh===VEH),fpAll:fp,totalReport:Math.max(0,...fp.map(x=>x.tot||0)),pagesVeh:fp.length};
+}
+function usageStats(rows){
+  const {events,usos,first,last}=build(rows);let tot=0;
+  for(const u of usos){const a=u.start?u.start.row.t:first.t,b=u.end?u.end.row.t:last.t;tot+=b-a;}
+  return {starts:events.filter(e=>e.type==="L"&&!e.atStart).length,atStart:events.some(e=>e.atStart),tot,first,last};
+}
+function renderFleet(){
+  const S=STATE,vs=vehList(S);$("#fleet").hidden=!vs;if(!vs)return;
+  $("#fleet-n").textContent="· "+vs.length+" veículos";
+  let h='<thead><tr><th>Placa</th><th class="num">Vezes que ligou</th><th class="num">Tempo ligado</th><th>Registros cobertos</th></tr></thead><tbody>';
+  for(const v of vs){const rows=S.rows.filter(r=>r.veh===v.key),st=rows.length?usageStats(rows):null;
+    const model=v.meta&&v.meta.vehicle?v.meta.vehicle.replace(v.meta.plate,"").trim():"";
+    h+='<tr class="r'+(v.key===VEH?' sel':'')+'" data-veh="'+esc(v.key)+'"><td data-l="Placa"><div><button type="button" class="plate-s" data-veh="'+esc(v.key)+'"'+(v.key===VEH?' aria-current="true"':'')+' aria-label="Ver o veículo '+esc(v.meta.plate||v.key)+'">'+esc(v.meta.plate||v.key)+'</button>'+(model?'<div class="fleet-model">'+esc(model)+'</div>':'')+'</div></td>'+
+      '<td data-l="Partidas" class="dur"><div>'+(st?st.starts:"—")+'</div></td><td data-l="Tempo ligado" class="dur"><div>'+(st?fmtDur(st.tot):"—")+'</div></td>'+
+      '<td data-l="Cobertos"><div class="mono" style="font-size:12.5px">'+(st&&st.first?esc(st.first.ts.slice(0,16)+" a "+st.last.ts.slice(0,16)):'<span class="muted">sem registros de percurso</span>')+'</div></td></tr>';}
+  $("#fleet-tbl").innerHTML=h+"</tbody>";
+}
+function render(){
+  if(!STATE)return;
+  const S=curView();STATE._v=S;renderFleet();
+  const {events,usos,first,last}=build(S.rows);
+  S._b=STATE._b={events,usos};
+  $("#result").hidden=false;$("#drop").classList.add("compact");
+  $("#btn-copy").disabled=false;$("#btn-clear").disabled=false;
+  const m=S.meta;
+  $("#v-plate").textContent=m.plate||"—";
+  $("#v-model").textContent=m.vehicle?m.vehicle.replace(m.plate,"").trim()||m.vehicle:"—";
+  $("#v-client").textContent=m.client||"—";
+  $("#v-period").textContent=m.period||"—";
+  $("#v-covered").textContent=first&&last?first.ts.slice(0,16)+" a "+last.ts.slice(0,16):"—";
+  const how={texto:"texto embutido do PDF",ocr:"OCR (PDF em imagem) com dupla leitura",misto:"texto embutido e OCR"}[S.mode];
+  $("#v-source").innerHTML=(S.isSample?'<span class="tag sample">Exemplo já processado</span>':'<span class="tag">Arquivo aberto</span>')+
+    '<span class="mono" style="overflow-wrap:anywhere">'+esc(S.fileName)+'</span><span>· '+S.pagesInFile+' páginas · '+S.rows.length+' registros lidos · leitura por '+how+(S.seconds?' · '+fmtEta(S.seconds):'')+'</span>'+(S.partialOf?'<span class="tag sample">Resultado parcial: páginas 1 a '+S.partialOf.done+' de '+S.partialOf.N+', continua lendo</span>':'');
+  // aviso de PDF parcial
+  const fps=(S.fpAll||S.rows.map(r=>r.fp)).map(x=>x&&typeof x==='object'?x.fp:x).filter(Boolean);const minFp=Math.min(...fps),maxFp=Math.max(...fps);
+  const partial=!S.partialOf&&S.totalReport&&(minFp>1||maxFp<S.totalReport);
+  $("#partial").hidden=!partial;
+  if(partial)$("#partial-text").innerHTML="<b>Este PDF tem só as páginas "+minFp+" a "+maxFp+" de "+S.totalReport+" do relatório.</b> Os eventos abaixo vão de "+esc(first.ts.slice(0,16))+" a "+esc(last.ts.slice(0,16))+". Para ver o período inteiro, abra o PDF completo; não há limite de páginas aqui.";
+  // resumo
+  const done=usos.filter(u=>u.start&&u.end&&!u.start.atStart);
+  const starts=events.filter(e=>e.type==="L"&&!e.atStart).length;
+  let tot=0;for(const u of usos){const a=u.start?u.start.row.t:first.t,b=u.end?u.end.row.t:last.t;tot+=b-a;}
+  $("#s-starts").textContent=starts;
+  $("#s-starts-sub").textContent=events.some(e=>e.atStart)?"+ já estava ligado no início":(starts===1?"partida":"partidas");
+  $("#s-time").textContent=fmtDur(tot);
+  $("#s-time-sub").textContent="soma dos períodos ligado"+(usos.some(u=>!u.start||!u.end)?" (inclui trechos nas pontas)":"");
+  const days=[...new Set(usos.map(u=>dayOf((u.start||u.end).row.ts)))];
+  $("#s-days").textContent=days.length;
+  $("#s-days-sub").textContent=days.length?days[0].slice(0,5)+(days.length>1?" a "+days[days.length-1].slice(0,5):""):"";
+  const issues=eventIssues(events,S);
+  const qb=$("#s-q-box");qb.classList.toggle("ok",!issues.length&&!S.alerts.length);qb.classList.toggle("alert",!!(issues.length||S.alerts.length));
+  if(S.mode==="texto"){$("#s-q").textContent=issues.length?issues.length+" alerta"+(issues.length>1?"s":""):"Exato";$("#s-q-sub").textContent="valores lidos do texto do PDF";}
+  else{const ver=events.filter(e=>e.row.v===1).length;$("#s-q").textContent=ver+"/"+events.length;$("#s-q-sub").textContent="eventos confirmados em 2 leituras";}
+  // dias
+  const cnt={};for(const e of events){const d=dayOf(e.row.ts);cnt[d]=(cnt[d]||0)+1;}
+  const dayList=[...new Set(events.map(e=>dayOf(e.row.ts)))];
+  if(DAY!=="all"&&!dayList.includes(DAY))DAY="all";
+  $("#days").innerHTML='<button type="button" class="chip" data-day="all" aria-pressed="'+(DAY==="all")+'">Todos</button>'+
+    dayList.map(d=>'<button type="button" class="chip" data-day="'+d+'" aria-pressed="'+(DAY===d)+'">'+weekday(d)+" "+d.slice(0,5)+'</button>').join("");
+  $("#view-usos").setAttribute("aria-pressed",VIEW==="usos");$("#view-eventos").setAttribute("aria-pressed",VIEW==="eventos");
+  VIEW==="usos"?renderUsos(usos,first,last):renderEventos(events);
+  renderQuality(S,events,issues);
+}
+function eventIssues(events,S){
+  const out=[];
+  for(const e of events){const r=e.row,where="pág. "+r.p+", linha "+r.k;
+    if(r.v===0)out.push({e,msg:where+" ("+r.ts+"): as leituras não bateram em "+describeDiff(r)+". Confira no PDF."});
+    if(e.uncertain)out.push({e,msg:where+" ("+r.ts+"): há registro ilegível logo antes; a ignição pode ter mudado um pouco antes deste horário."});
+    if(r.lat==null)out.push({e,msg:where+" ("+r.ts+"): coordenada ilegível."});
+  }
+  return out;
+}
+function describeDiff(r){const N={dt:"data/hora",ign:"ignição",pos:"coordenada"},x=r.vx||{};
+  const parts=Object.keys(x).map(f=>N[f]+" (leituras: "+(x[f].length?x[f].map(v=>f==="ign"?(v==="L"?"LIGADA":"DESLIGADA"):v.replace(",",", ")).join(" / "):"ilegível")+")");
+  return parts.length?esc(parts.join("; ")):"leituras diferentes";}
+function checkCell(r){
+  if(r.how==="texto")return '<span class="src">texto do PDF</span>';
+  if(r.v===1)return '<span class="check">'+ICON_OK+' 2 leituras</span>';
+  if(r.v===0)return '<span class="check warn" title="'+describeDiff(r)+'">'+ICON_WARN+' conferir</span>';
+  return '<span class="check warn">'+ICON_WARN+' sem 2ª leitura</span>';
+}
+function locCell(r){
+  if(r.lat==null)return '<div class="loc"><span class="muted">coordenada ilegível</span></div>';
+  return '<div class="loc"><a href="'+mapsUrl(r)+'" target="_blank" rel="noopener">'+coordTxt(r)+'</a>'+(r.addr?'<span class="addr">'+esc(r.addr)+'</span>':'')+'</div>';
+}
+function flagFor(e,issues){return issues.some(x=>x.e===e);}
+function renderUsos(usos,first,last){
+  const issues=eventIssues(STATE._b.events,STATE);
+  let h='<thead><tr><th>Ligou</th><th>Local onde ligou</th><th>Desligou</th><th>Local onde desligou</th><th class="num">Tempo ligado</th><th>Conferência</th></tr></thead><tbody>';
+  let curDay=null,n=0;
+  for(const u of usos){
+    const ref=(u.start||u.end).row, d=dayOf(ref.ts);
+    if(DAY!=="all"&&d!==DAY)continue;
+    if(d!==curDay){curDay=d;h+='<tr class="day-row"><td colspan="6">'+weekday(d)+", "+d+' <span class="muted">· '+usos.filter(x=>dayOf((x.start||x.end).row.ts)===d).length+' uso(s)</span></td></tr>';}
+    n++;
+    const s=u.start,e=u.end;
+    const sTime=!s?'<span class="muted">antes do início</span>':s.atStart?'<span class="t">'+timeOf(s.row.ts)+'</span><div class="d">já estava ligado</div>':'<span class="t">'+timeOf(s.row.ts)+'</span>';
+    const eTime=e?'<span class="t">'+timeOf(e.row.ts)+'</span>'+(dayOf(e.row.ts)!==d?'<div class="d">'+e.row.ts.slice(0,10)+'</div>':''):'<span class="muted">ainda ligado</span><div class="d">fim do arquivo</div>';
+    const a=s?s.row.t:first.t,b=e?e.row.t:last.t;
+    const durTxt=(!s||s.atStart||!e?"≥ ":"")+fmtDur(b-a);
+    const chk=[s&&s.row,e&&e.row].filter(Boolean);
+    const anyIssue=[s,e].some(x=>x&&flagFor(x,issues));
+    const ck=anyIssue?'<span class="check warn">'+ICON_WARN+' conferir</span>':chk.every(r=>r.how==="texto")?'<span class="src">texto do PDF</span>':chk.every(r=>r.v===1)?'<span class="check">'+ICON_OK+' 2 leituras</span>':'<span class="check warn">'+ICON_WARN+' conferir</span>';
+    h+='<tr class="r"><td data-l="Ligou"><div>'+sTime+'</div></td><td data-l="Local"><div>'+(s?locCell(s.row):'')+'</div></td><td data-l="Desligou"><div>'+eTime+'</div></td><td data-l="Local"><div>'+(e?locCell(e.row):'')+'</div></td><td data-l="Tempo" class="dur"><div>'+durTxt+'</div></td><td data-l="Conferência"><div>'+ck+'</div></td></tr>';
+  }
+  if(!n)h+='<tr><td colspan="6" class="empty">Nenhum uso encontrado neste período.</td></tr>';
+  $("#tbl").innerHTML=h+"</tbody>";
+}
+function renderEventos(events){
+  let h='<thead><tr><th>Hora</th><th>Evento</th><th>Coordenada e endereço</th><th>Onde está no PDF</th><th>Conferência</th></tr></thead><tbody>';
+  let curDay=null,n=0;
+  for(const e of events){
+    const r=e.row,d=dayOf(r.ts);if(DAY!=="all"&&d!==DAY)continue;
+    if(d!==curDay){curDay=d;h+='<tr class="day-row"><td colspan="5">'+weekday(d)+", "+d+'</td></tr>';}
+    n++;
+    const pill=e.type==="L"?'<span class="pill on">'+(e.atStart?"Ligado (início do arquivo)":"Ligou")+'</span>':'<span class="pill off">Desligou</span>';
+    h+='<tr class="r"><td data-l="Hora"><span class="t">'+timeOf(r.ts)+'</span></td><td data-l="Evento"><div>'+pill+'</div></td><td data-l="Local"><div>'+locCell(r)+'</div></td><td data-l="No PDF"><span class="src">pág. '+r.p+(r.fp&&r.fp!==r.p?' (rel. '+r.fp+')':'')+', linha '+r.k+'</span></td><td data-l="Conferência"><div>'+checkCell(r)+'</div></td></tr>';
+  }
+  if(!n)h+='<tr><td colspan="5" class="empty">Nenhum evento encontrado neste período.</td></tr>';
+  $("#tbl").innerHTML=h+"</tbody>";
+}
+function renderQuality(S,events,issues){
+  const lines=[];
+  const ver=events.filter(e=>e.row.v===1).length;
+  if(S.mode==="texto")lines.push('<li class="ok-line">'+S.rows.length+' registros lidos do texto embutido do PDF, em '+(S.pagesVeh?S.pagesVeh+' páginas deste veículo (de '+S.pagesInFile+' no arquivo)':S.pagesInFile+' páginas')+'.</li>');
+  else lines.push('<li class="ok-line">'+S.rows.length+' registros lidos em '+S.pagesInFile+' páginas. '+ver+' de '+events.length+' eventos confirmados por uma segunda leitura independente de data, hora, ignição e coordenada.</li>');
+  const seq=checkSequence(S.rows);
+  lines.push(seq?'<li class="w">'+seq+'</li>':'<li class="ok-line">Horários em ordem crescente do primeiro ao último registro, sem registros fora de ordem.</li>');
+  for(const x of issues)lines.push('<li class="w">'+x.msg+'</li>');
+  if(S.diag)lines.push('<li class="w">Este PDF tem texto embutido, mas não reconheci a tabela nele e li por OCR, que é bem mais lento. <button type="button" data-diag>Copiar diagnóstico</button> e cole no chat com o Claude para ajustar a leitura direta.</li>');
+  for(const n of (S.notes||[]))lines.push('<li>'+esc(typeof n==="string"?n:n.t)+'</li>');
+  for(const a of S.alerts)lines.push('<li class="w">Pág. '+a.page+(a.line?', linha '+a.line:'')+': '+a.msg+'.</li>');
+  if(!issues.length&&!S.alerts.length&&!seq)lines.push('<li class="ok-line">Nenhum alerta. Todas as páginas tiveram '+S.rowsPerPage+' registros lidos'+(S.totalReport?', e a numeração do relatório está contínua':'')+'.</li>');
+  $("#q-body").innerHTML="<ul>"+lines.join("")+"</ul>";
+}
+function checkSequence(rows){
+  let prev=null;for(const r of rows){if(!r.ts)continue;const t=tsToMs(r.ts);if(prev&&t<prev.t)return "Registro fora de ordem na pág. "+r.p+", linha "+r.k+" ("+r.ts+" vem depois de "+prev.ts+"). Confira no PDF.";prev={t,ts:r.ts};}
+  return null;
+}
+
+/* ---------------- copiar / baixar ---------------- */
+function tableRows(){const V=STATE._v||STATE;return exportRows(V.rows,V.meta.plate,VIEW,DAY);}
+function fleetRows(){const out=[];for(const v of vehList(STATE)||[]){const rows=STATE.rows.filter(r=>r.veh===v.key);if(!rows.length)continue;const t=exportRows(rows,v.meta.plate||v.key,"usos","all");out.push(...(out.length?t.slice(1):t));}return out;}
+function exportRows(rows,plate,VIEW,DAY){
+  const {events,usos}=build(rows),first=rows.find(r=>r.ts),last=[...rows].reverse().find(r=>r.ts),S={meta:{plate}};
+  const loc=r=>r?[coordTxt(r),r.addr||"",r.lat!=null?mapsUrl(r):""]:["","",""];
+  if(VIEW==="usos"){
+    const out=[["Placa","Ligou (data)","Ligou (hora)","Coordenada onde ligou","Endereço onde ligou","Mapa onde ligou","Desligou (data)","Desligou (hora)","Coordenada onde desligou","Endereço onde desligou","Mapa onde desligou","Tempo ligado (h:mm:ss)","Observação"]];
+    for(const u of usos){const ref=(u.start||u.end).row;if(DAY!=="all"&&dayOf(ref.ts)!==DAY)continue;
+      const s=u.start&&u.start.row,e=u.end&&u.end.row;
+      const a=s?tsToMs(s.ts):tsToMs(first.ts),b=e?tsToMs(e.ts):tsToMs(last.ts);
+      const obs=[!s||u.start.atStart?"já estava ligado no início do arquivo":"",!e?"ainda ligado no fim do arquivo":""].filter(Boolean).join("; ");
+      out.push([S.meta.plate,s?dayOf(s.ts):"",s?timeOf(s.ts):"",...loc(s),e?dayOf(e.ts):"",e?timeOf(e.ts):"",...loc(e),hms(b-a),obs]);}
+    return out;
+  }
+  const out=[["Placa","Data","Hora","Evento","Coordenada","Endereço","Mapa","Página do PDF","Linha"]];
+  for(const ev of events){const r=ev.row;if(DAY!=="all"&&dayOf(r.ts)!==DAY)continue;
+    out.push([S.meta.plate,dayOf(r.ts),timeOf(r.ts),ev.type==="L"?(ev.atStart?"Ligado (início do arquivo)":"Ligou"):"Desligou",...loc(r),r.p,r.k]);}
+  return out;
+}
+async function copyTable(){
+  const tsv=tableRows().map(r=>r.map(c=>String(c).replace(/[\t\n]/g," ")).join("\t")).join("\n");
+  try{await navigator.clipboard.writeText(tsv);toast("Tabela copiada. Cole no Excel ou no Google Planilhas.");}
+  catch(e){const ta=document.createElement("textarea");ta.value=tsv;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();
+    let ok=false;try{ok=document.execCommand("copy");}catch(_){}ta.remove();toast(ok?"Tabela copiada. Cole no Excel ou no Google Planilhas.":"Não consegui copiar. Use Baixar planilha.");}
+}
+let DL=null;
+async function downloadCsv(fleet){
+  if(!DL)return;
+  const csv="﻿"+(fleet===true?fleetRows():tableRows()).map(r=>r.map(c=>{const s=String(c);return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(";")).join("\r\n");
+  const name=fleet===true?"frota_ignicao_usos.csv":((STATE._v||STATE).meta.plate||"veiculo")+"_ignicao_"+(VIEW==="usos"?"usos":"eventos")+(DAY!=="all"?"_"+DAY.replace(/\//g,"-"):"")+".csv";
+  try{await DL.save({filename:name,data:csv});toast("Planilha salva");}
+  catch(e){if(e&&e.code==="declined")return;toast(e&&e.code==="rate_limited"?"Já existe um download aguardando confirmação.":"Não foi possível baixar aqui. Use Copiar tabela.");}
+}
+
+/* ---------------- interface ---------------- */
+function setBusy(b){$("#progress").hidden=!b;$("#drop").hidden=b;$("#btn-open").disabled=b;}
+function progress(f,title,detail,eta){$("#pg-bar").style.width=Math.round(f*100)+"%";$("#pg-meter").setAttribute("aria-valuenow",Math.round(f*100));$("#pg-title").textContent=title;$("#pg-detail").textContent=detail;$("#pg-eta").textContent=eta;}
+function showError(msg){$("#error").hidden=false;$("#error-text").innerHTML=msg;}
+function hideError(){$("#error").hidden=true;}
+$("#btn-open").onclick=()=>$("#file").click();
+$("#btn-open2").onclick=()=>$("#file").click();
+$("#file").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)processFile(f);};
+$("#btn-cancel").onclick=()=>{cancelFlag=true;$("#pg-title").textContent="Cancelando…";};
+$("#btn-copy").onclick=copyTable;
+function clearAll(){
+  if(!$("#progress").hidden)cancelFlag=true;
+  STATE=null;window.__lastResult=null;DAY="all";VIEW="usos";VEH=null;$("#fleet").hidden=true;
+  $("#result").hidden=true;$("#drop").classList.remove("compact");$("#tbl").innerHTML="";$("#q-body").innerHTML="";
+  $("#btn-copy").disabled=true;$("#btn-csv").disabled=true;$("#btn-clear").disabled=true;hideError();
+  toast("Tela limpa. Abra um PDF para começar.");
+}
+$("#btn-clear").onclick=clearAll;
+$("#btn-csv").onclick=()=>downloadCsv();
+$("#btn-fleet-csv").onclick=async()=>{if(DL)return downloadCsv(true);
+  const tsv=fleetRows().map(r=>r.map(c=>String(c).replace(/[\t\n]/g," ")).join("\t")).join("\n");
+  try{await navigator.clipboard.writeText(tsv);toast("Usos da frota copiados. Cole no Excel ou no Google Planilhas.");}catch(e){toast("Não consegui copiar.");}};
+$("#fleet-tbl").onclick=e=>{const t=e.target.closest("[data-veh]");if(t&&t.dataset.veh!==VEH){VEH=t.dataset.veh;DAY="all";render();$("#v-plate").scrollIntoView({block:"nearest"});}};
+$("#view-usos").onclick=()=>{VIEW="usos";render();};
+$("#view-eventos").onclick=()=>{VIEW="eventos";render();};
+$("#days").onclick=e=>{const b=e.target.closest("[data-day]");if(b){DAY=b.dataset.day;render();}};
+const dz=$("#drop");
+["dragenter","dragover"].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();dz.classList.add("over");}));
+["dragleave","drop"].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();if(t==="drop"||e.target===document.documentElement)dz.classList.remove("over");}));
+document.addEventListener("drop",e=>{const f=e.dataTransfer&&e.dataTransfer.files[0];if(f&&$("#progress").hidden)processFile(f);});
+
+// download pela plataforma, quando disponível
+(async()=>{try{const d=window.claude&&window.claude.use?await window.claude.use("downloads"):null;if(d){DL=d;$("#btn-csv").hidden=false;$("#btn-csv").disabled=!STATE;}}catch(_){}})();
+const _render=render;render=function(){_render();if(DL)$("#btn-csv").disabled=false;};
+
+if(!(window.claude&&window.claude.use)){
+  DL={save:async({filename,data})=>{const u=URL.createObjectURL(new Blob([data],{type:"text/csv;charset=utf-8"}));
+    const a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000);return {status:"saved"};}};
+  $("#btn-csv").hidden=false;
+}
+// exemplo já processado (o PDF enviado no chat)
+try{const s=JSON.parse($("#sample-data").textContent);if(s){STATE=s;render();}}catch(_){}
+</script>
+
+<script>
+/* tema: abre no claro; o botão alterna e a escolha fica salva neste navegador */
+(function(){
+  var root=document.documentElement,KEY="diario-ignicao-tema";
+  function apply(t){root.setAttribute("data-theme",t);var dark=t==="dark";
+    document.getElementById("ico-moon").hidden=dark;document.getElementById("ico-sun").hidden=!dark;
+    document.getElementById("theme-label").textContent=dark?"Modo claro":"Modo escuro";}
+  var saved=null;try{saved=localStorage.getItem(KEY);}catch(e){}
+  apply(saved==="dark"?"dark":"light");
+  document.getElementById("btn-theme").addEventListener("click",function(){
+    var t=root.getAttribute("data-theme")==="dark"?"light":"dark";apply(t);try{localStorage.setItem(KEY,t);}catch(e){}});
+})();
+</script>
+
+</body>
+</html>
