@@ -182,6 +182,46 @@ th.num{text-align:right}
 .src{font-size:12px;color:var(--text-2);white-space:nowrap}
 .empty{padding:32px 16px;text-align:center;color:var(--text-2)}
 
+/* trajeto */
+.trip-btn{height:26px;padding:0 8px;font-size:12px;margin-top:6px;gap:5px;font-family:var(--font-ui);letter-spacing:0}
+.trip-btn svg{width:13px;height:13px}
+dialog.trip{border:1px solid var(--border);border-radius:var(--r-lg);padding:0;width:min(1080px,calc(100vw - 32px));max-height:calc(100dvh - 32px);background:var(--surface);color:var(--text);box-shadow:0 20px 48px rgba(15,23,42,.28)}
+dialog.trip::backdrop{background:rgba(15,23,42,.5)}
+.trip-wrap{display:flex;flex-direction:column;max-height:calc(100dvh - 34px)}
+.trip-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.trip-head h2{font-size:15px;font-weight:600}
+.trip-head .sub{font-size:12px;color:var(--text-2);margin-top:1px}
+.trip-map{height:min(58vh,560px);min-height:260px;background:var(--sunk);flex:none}
+.trip-info{padding:12px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.trip-ends{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 20px}
+.trip-end{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.trip-end .mk{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none;margin-top:1px}
+.mk.a{background:var(--success)}.mk.b{background:var(--danger)}
+.trip-end .k{font-size:12px;color:var(--text-2)}
+.trip-end .addr{font-size:12px;color:var(--text-2)}
+.trip-stats{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px}
+.trip-stats b{font-weight:600;font-variant-numeric:tabular-nums}
+.trip-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.trip-actions a.btn-like{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:var(--r);background:var(--primary);color:var(--primary-ink);font-weight:500;text-decoration:none;font-size:13px}
+.trip-actions a.btn-like:hover{background:var(--primary-hover)}
+.trip-actions a.btn-like svg{width:15px;height:15px}
+.trip-note{font-size:12px;color:var(--text-2)}
+.trip-pin{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:grid;place-items:center;font:700 11px/1 var(--font-ui);color:#fff}
+.trip-pin.a{background:#16835B}.trip-pin.b{background:#C0392B}
+.trip-pin.ab{width:38px;border-radius:11px;display:flex;overflow:hidden;background:none}.trip-pin.ab span{flex:1;display:grid;place-items:center}.trip-pin.ab span:first-child{background:#16835B}.trip-pin.ab span:last-child{background:#C0392B}
+.trip-end a{text-decoration:none}.trip-end a:hover{text-decoration:underline}
+.leaflet-container{font-family:var(--font-ui)}
+:root[data-theme="dark"] .trip-map .leaflet-bar a{background:var(--surface);color:var(--text);border-color:var(--border)}
+:root[data-theme="dark"] .trip-map .leaflet-control-attribution{background:rgba(24,27,33,.8);color:var(--text-2)}
+:root[data-theme="dark"] .trip-map .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)}
+@media (max-width:760px){
+  dialog.trip{width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;border-radius:0;border:0;margin:0}
+  .trip-wrap{max-height:100dvh;height:100dvh}
+  .trip-map{height:auto;flex:1 1 auto;min-height:240px}
+  .trip-info{flex:none;max-height:45dvh}
+  .trip-ends{grid-template-columns:1fr}
+}
+
 /* conferência */
 .quality{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
 .quality h2{font-size:14px;font-weight:600;padding:10px 16px;border-bottom:1px solid var(--border)}
@@ -327,6 +367,15 @@ footer p{margin:0 0 6px}
       </section>
     </div>
   </div>
+
+  <dialog class="trip" id="trip" aria-labelledby="trip-title">
+    <div class="trip-wrap">
+      <div class="trip-head"><div><h2 id="trip-title">Trajeto</h2><div class="sub" id="trip-sub"></div></div>
+        <button type="button" id="trip-close" class="btn-quiet" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>Fechar</button></div>
+      <div class="trip-map" id="trip-map"></div>
+      <div class="trip-info" id="trip-info"></div>
+    </div>
+  </dialog>
 
   <footer>
     <p><b>Como funciona.</b> O relatório registra o veículo a cada minuto. O Diário de Ignição lê todos os registros e guarda só os momentos em que a coluna Ignição muda de DESLIGADA para LIGADA (ligou) ou de LIGADA para DESLIGADA (desligou), com a data, a hora e a coordenada daquele registro.</p>
@@ -786,7 +835,7 @@ function build(rows){
   for(let i=0;i<rows.length;i++){
     const r=rows[i];
     if(!r.ign||!r.ts){gap=true;continue;}
-    const row={...r,t:tsToMs(r.ts)};
+    const row={...r,t:tsToMs(r.ts),i};
     if(!prev){if(row.ign==="L")events.push({type:"L",row,atStart:true});prev=row;gap=false;continue;}
     if(row.ign!==prev.ign)events.push({type:row.ign,row,uncertain:gap,prevRow:prev});
     prev=row;gap=false;
@@ -909,7 +958,7 @@ function renderUsos(usos,first,last){
     const sTime=!s?'<span class="muted">antes do início</span>':s.atStart?'<span class="t">'+timeOf(s.row.ts)+'</span><div class="d">já estava ligado</div>':'<span class="t">'+timeOf(s.row.ts)+'</span>';
     const eTime=e?'<span class="t">'+timeOf(e.row.ts)+'</span>'+(dayOf(e.row.ts)!==d?'<div class="d">'+e.row.ts.slice(0,10)+'</div>':''):'<span class="muted">ainda ligado</span><div class="d">fim do arquivo</div>';
     const a=s?s.row.t:first.t,b=e?e.row.t:last.t;
-    const durTxt=(!s||s.atStart||!e?"≥ ":"")+fmtDur(b-a);
+    const durTxt=(!s||s.atStart||!e?"≥ ":"")+fmtDur(b-a)+'<br><button type="button" class="trip-btn" data-trip="'+usos.indexOf(u)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg>Ver trajeto</button>';
     const chk=[s&&s.row,e&&e.row].filter(Boolean);
     const anyIssue=[s,e].some(x=>x&&flagFor(x,issues));
     const ck=anyIssue?'<span class="check warn">'+ICON_WARN+' conferir</span>':chk.every(r=>r.how==="texto")?'<span class="src">texto do PDF</span>':chk.every(r=>r.v===1)?'<span class="check">'+ICON_OK+' 2 leituras</span>':'<span class="check warn">'+ICON_WARN+' conferir</span>';
@@ -950,6 +999,69 @@ function checkSequence(rows){
   return null;
 }
 
+/* ---------------- trajeto (ligou → desligou) ---------------- */
+function tripOf(u,rows){ // pontos do relatório entre a partida e a parada
+  const i0=u.start?u.start.row.i:0,i1=u.end?u.end.row.i:rows.length-1;
+  const pts=[];for(let i=i0;i<=i1;i++){const r=rows[i];if(r&&r.lat!=null&&r.lon!=null&&isFinite(r.lat)&&isFinite(r.lon))pts.push(r);}
+  const a=u.start?u.start.row:rows[i0],b=u.end?u.end.row:rows[i1];
+  let km=0;for(let k=1;k<pts.length;k++)km+=haversineKm(pts[k-1],pts[k]);
+  return {a,b,pts,km,records:i1-i0+1};
+}
+function routeUrl(t){ // Google Maps com o caminho real: partida, até 8 pontos intermediários e parada
+  const c=r=>r.lat+","+r.lon,a=t.a,b=t.b;if(a.lat==null||b.lat==null)return null;
+  const mid=t.pts.filter(r=>r!==a&&r!==b);const way=[];
+  if(mid.length){const n=Math.min(8,mid.length);for(let k=0;k<n;k++){const r=mid[Math.floor((k+0.5)*mid.length/n)];const last=way[way.length-1]||a;if(haversineKm(last,r)>0.05)way.push(r);}}
+  return "https://www.google.com/maps/dir/?api=1&origin="+c(a)+"&destination="+c(b)+(way.length?"&waypoints="+encodeURIComponent(way.map(c).join("|")):"")+"&travelmode=driving";
+}
+let LEAF_P=null;
+function loadLeaflet(){
+  if(window.L)return Promise.resolve(window.L);
+  if(!LEAF_P)LEAF_P=new Promise((res,rej)=>{
+    if(EMB&&EMB.leafletCss){const st=document.createElement("style");st.textContent=EMB.leafletCss;document.head.appendChild(st);}
+    else{const l=document.createElement("link");l.rel="stylesheet";l.href=LIB+"leaflet/leaflet.css";document.head.appendChild(l);}
+    const sc=document.createElement("script");sc.src=EMB&&EMB.leafletJs?EMB.leafletJs:LIB+"leaflet/leaflet.js";
+    sc.onload=()=>window.L?res(window.L):rej(new Error("mapa"));sc.onerror=()=>{LEAF_P=null;rej(new Error("mapa"));};document.head.appendChild(sc);});
+  return LEAF_P;
+}
+let TRIP_MAP=null;
+async function openTrip(k){
+  const V=STATE._v||STATE,u=STATE._b.usos[k];if(!u)return;
+  const t=tripOf(u,V.rows),dlg=$("#trip");
+  const day=dayOf(t.a.ts),dur=fmtDur(tsToMs(t.b.ts)-tsToMs(t.a.ts));
+  $("#trip-title").textContent="Trajeto · "+weekday(day)+" "+day.slice(0,5)+" · "+timeOf(t.a.ts).slice(0,5)+" → "+timeOf(t.b.ts).slice(0,5);
+  $("#trip-sub").textContent=(V.meta.plate?V.meta.plate+" · ":"")+(u.start&&!u.start.atStart?"":"já estava ligado no início do arquivo · ")+(u.end?"":"ainda ligado no fim do arquivo · ")+t.pts.length+" pontos de localização no relatório";
+  const url=routeUrl(t),moved=t.pts.length>=2&&t.km>=0.05,partial=t.records>2&&t.pts.length<t.records;
+  const end=(cls,lbl,r,word)=>'<div class="trip-end"><span class="mk '+cls+'">'+lbl+'</span><div style="min-width:0"><div class="k">'+word+'</div><div><span class="t">'+esc(r.ts)+'</span></div>'+(r.lat!=null?'<a class="mono" style="font-size:12.5px" href="'+mapsUrl(r)+'" target="_blank" rel="noopener">'+coordTxt(r)+'</a>':'<span class="muted">coordenada ilegível</span>')+(r.addr?'<div class="addr">'+esc(r.addr)+'</div>':'')+'</div></div>';
+  $("#trip-info").innerHTML='<div class="trip-ends">'+end("a","A",t.a,u.start&&!u.start.atStart?"Ligou":"Início do arquivo (já ligado)")+end("b","B",t.b,u.end?"Desligou":"Fim do arquivo (ainda ligado)")+'</div>'+
+    '<div class="trip-stats"><span>Tempo ligado <b>'+dur+'</b></span>'+(moved&&!partial?'<span>Distância pelos pontos <b>≈ '+t.km.toFixed(t.km<10?1:0).replace(".",",")+' km</b></span>':'')+(t.a.lat!=null&&t.b.lat!=null?'<span>Distância em linha reta A→B <b>'+(()=>{const d=haversineKm(t.a,t.b);return d<1?Math.round(d*1000)+" m":d.toFixed(1).replace(".",",")+" km";})()+'</b></span>':'')+'</div>'+
+    (partial?'<div class="trip-note">Este PDF foi lido por imagem e só tem a coordenada dos momentos em que ligou e desligou; o mapa liga os dois pontos em linha reta. Com o PDF que tem texto, o trajeto sai completo, com todas as posições registradas.</div>':
+      !moved?'<div class="trip-note">O veículo ficou praticamente no mesmo lugar enquanto esteve ligado.</div>':'<div class="trip-note">A linha azul segue as posições registradas pelo rastreador enquanto o veículo esteve ligado.</div>')+
+    '<div class="trip-actions">'+(url?'<a class="btn-like" href="'+url+'" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Abrir trajeto no Google Maps</a>':'')+
+    '<span class="trip-note" id="trip-maperr"></span></div>';
+  if(!dlg.open)dlg.showModal();
+  let L;try{L=await loadLeaflet();}catch(e){$("#trip-map").innerHTML='<div class="empty">Não consegui carregar o mapa aqui (precisa de internet). Use o botão do Google Maps.</div>';return;}
+  if(TRIP_MAP){TRIP_MAP.remove();TRIP_MAP=null;}
+  $("#trip-map").innerHTML="";
+  const map=TRIP_MAP=L.map("trip-map",{zoomControl:true,attributionControl:true});
+  const tl=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'}).addTo(map);
+  let tileErr=0;tl.on("tileerror",()=>{if(++tileErr===3)$("#trip-maperr").textContent="O fundo do mapa não carregou aqui; a linha e os pontos continuam certos, e o Google Maps abre normalmente.";});
+  const ll=t.pts.map(r=>[r.lat,r.lon]);
+  const pin=(cls,txt)=>L.divIcon({className:"",html:'<div class="trip-pin '+cls+'">'+txt+'</div>',iconSize:[22,22],iconAnchor:[11,11]});
+  if(ll.length>=2){L.polyline(ll,{color:"#1E4E8C",weight:4,opacity:.85,dashArray:partial?"6 8":null}).addTo(map);
+    if(!partial)for(const p of ll.slice(1,-1))L.circleMarker(p,{radius:2.5,color:"#1E4E8C",weight:1,fillOpacity:.9}).addTo(map);}
+  const same=t.a.lat!=null&&t.b.lat!=null&&haversineKm(t.a,t.b)<0.03; // ligou e desligou no mesmo lugar: um marcador só
+  if(same)L.marker([t.b.lat,t.b.lon],{icon:L.divIcon({className:"",html:'<div class="trip-pin ab"><span>A</span><span>B</span></div>',iconSize:[38,22],iconAnchor:[19,11]}),title:"Ligou e desligou aqui",zIndexOffset:10}).addTo(map);
+  if(!same&&t.a.lat!=null)L.marker([t.a.lat,t.a.lon],{icon:pin("a","A"),title:"Ligou "+t.a.ts}).addTo(map);
+  if(!same&&t.b.lat!=null)L.marker([t.b.lat,t.b.lon],{icon:pin("b","B"),title:"Desligou "+t.b.ts,zIndexOffset:10}).addTo(map);
+  const all=ll.length?ll:[t.a,t.b].filter(r=>r.lat!=null).map(r=>[r.lat,r.lon]);
+  requestAnimationFrame(()=>{map.invalidateSize();if(all.length>1&&moved)map.fitBounds(all,{padding:[36,36],maxZoom:17});else if(all.length)map.setView(all[0],16);else map.setView([-15.8,-47.9],4);});
+}
+function closeTrip(){const d=$("#trip");if(d.open)d.close();}
+$("#trip-close").onclick=closeTrip;
+$("#trip").addEventListener("click",e=>{if(e.target===e.currentTarget)closeTrip();});
+$("#trip").addEventListener("close",()=>{if(TRIP_MAP){TRIP_MAP.remove();TRIP_MAP=null;}});
+$("#tbl").addEventListener("click",e=>{const b=e.target.closest("[data-trip]");if(b)openTrip(+b.dataset.trip);});
+
 /* ---------------- copiar / baixar ---------------- */
 function tableRows(){const V=STATE._v||STATE;return exportRows(V.rows,V.meta.plate,VIEW,DAY);}
 function fleetRows(){const out=[];for(const v of vehList(STATE)||[]){const rows=STATE.rows.filter(r=>r.veh===v.key);if(!rows.length)continue;const t=exportRows(rows,v.meta.plate||v.key,"usos","all");out.push(...(out.length?t.slice(1):t));}return out;}
@@ -957,12 +1069,12 @@ function exportRows(rows,plate,VIEW,DAY){
   const {events,usos}=build(rows),first=rows.find(r=>r.ts),last=[...rows].reverse().find(r=>r.ts),S={meta:{plate}};
   const loc=r=>r?[coordTxt(r),r.addr||"",r.lat!=null?mapsUrl(r):""]:["","",""];
   if(VIEW==="usos"){
-    const out=[["Placa","Ligou (data)","Ligou (hora)","Coordenada onde ligou","Endereço onde ligou","Mapa onde ligou","Desligou (data)","Desligou (hora)","Coordenada onde desligou","Endereço onde desligou","Mapa onde desligou","Tempo ligado (h:mm:ss)","Observação"]];
+    const out=[["Placa","Ligou (data)","Ligou (hora)","Coordenada onde ligou","Endereço onde ligou","Mapa onde ligou","Desligou (data)","Desligou (hora)","Coordenada onde desligou","Endereço onde desligou","Mapa onde desligou","Tempo ligado (h:mm:ss)","Observação","Trajeto no Google Maps"]];
     for(const u of usos){const ref=(u.start||u.end).row;if(DAY!=="all"&&dayOf(ref.ts)!==DAY)continue;
       const s=u.start&&u.start.row,e=u.end&&u.end.row;
       const a=s?tsToMs(s.ts):tsToMs(first.ts),b=e?tsToMs(e.ts):tsToMs(last.ts);
       const obs=[!s||u.start.atStart?"já estava ligado no início do arquivo":"",!e?"ainda ligado no fim do arquivo":""].filter(Boolean).join("; ");
-      out.push([S.meta.plate,s?dayOf(s.ts):"",s?timeOf(s.ts):"",...loc(s),e?dayOf(e.ts):"",e?timeOf(e.ts):"",...loc(e),hms(b-a),obs]);}
+      out.push([S.meta.plate,s?dayOf(s.ts):"",s?timeOf(s.ts):"",...loc(s),e?dayOf(e.ts):"",e?timeOf(e.ts):"",...loc(e),hms(b-a),obs,routeUrl(tripOf(u,rows))||""]);}
     return out;
   }
   const out=[["Placa","Data","Hora","Evento","Coordenada","Endereço","Mapa","Página do PDF","Linha"]];

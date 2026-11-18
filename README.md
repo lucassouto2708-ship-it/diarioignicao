@@ -12,8 +12,9 @@ Lê o PDF do **Relatório de percurso** do rastreador e mostra só o que interes
 - PDF com texto embutido é lido em segundos, mesmo com mais de 1000 páginas.
 - PDF em imagem (escaneado/impresso) é lido por OCR, com dupla leitura de cada evento.
 - Arquivo de frota (vários veículos no mesmo PDF) é separado por placa, com planilha da frota inteira.
+- **Ver trajeto**: em cada uso, abre um mapa com o caminho feito do ponto A (ligou) ao ponto B (desligou), pelas posições do relatório, e um botão para abrir o trajeto no Google Maps.
 
 ## Arquivos
 
 - `index.html`: a aplicação.
-- `lib/`: leitor de PDF (pdf.js 3.11.174) e OCR (tesseract.js 5.1.1, com dados de português e inglês).
+- `lib/`: leitor de PDF (pdf.js 3.11.174), OCR (tesseract.js 5.1.1, com dados de português e inglês) e mapa (Leaflet 1.9.4, com fundo do OpenStreetMap).
