@@ -199,6 +199,14 @@ th.num{text-align:right}
 .cross-car .sw{width:10px;height:10px;border-radius:2px;flex:none;align-self:center}
 .cross-car .t{font-size:12.5px}
 .tag.same{background:var(--warning-soft);color:var(--warning)}
+.cross-dest{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface)}
+.cross-dest summary{cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;color:var(--text)}
+.cross-dest[open] summary{border-bottom:1px solid var(--border)}
+.cross-dest-body{padding:10px 14px;display:flex;flex-direction:column;gap:10px}
+.cross-dest-body .table-box{max-height:360px}
+.city-chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:var(--r-sm);background:var(--neutral-soft);font-size:12px;margin:0 4px 4px 0;white-space:nowrap}
+.city-chip.base{color:var(--text-2)}
+.city-chip.none{background:var(--warning-soft);color:var(--warning)}
 .trip-legend{display:flex;flex-direction:column;gap:8px}
 .trip-legend .row{display:flex;gap:10px;align-items:flex-start;font-size:13px}
 .trip-legend .sw{width:14px;height:4px;border-radius:2px;margin-top:8px;flex:none}
@@ -313,6 +321,10 @@ footer p{margin:0 0 6px}
       <button id="btn-csv" type="button" disabled hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
         Baixar planilha (.csv)</button>
+      <button id="btn-add" type="button" disabled title="Juntar mais PDFs ao resultado da tela (outros carros ou outros períodos)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Adicionar PDF</button>
+      <input id="file-add" type="file" accept="application/pdf,.pdf" multiple hidden>
       <button id="btn-open" type="button" class="btn-primary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4Z"/><path d="M14 3v4h4"/></svg>
         Abrir PDF</button>
@@ -326,7 +338,7 @@ footer p{margin:0 0 6px}
   <section id="drop" class="drop" aria-label="Enviar relatório">
     <div>
       <p class="lead">Arraste aqui o PDF do relatório de percurso (um ou vários)</p>
-      <p class="muted">Aceita o relatório completo, com qualquer número de páginas. O arquivo é lido no seu navegador e não é enviado para nenhum servidor.</p>
+      <p class="muted">Para comparar carros, abra os PDFs juntos (selecione vários) ou use <b>Adicionar PDF</b> depois. Aceita o relatório completo, com qualquer número de páginas. O arquivo é lido no seu navegador e não é enviado para nenhum servidor.</p>
     </div>
     <button id="btn-open2" type="button">Escolher arquivo</button>
   </section>
@@ -354,6 +366,10 @@ footer p{margin:0 0 6px}
               <button type="button" id="btn-cross-csv">Planilha das viagens repetidas</button></div></div>
           <p class="cross-desc" id="cross-desc">Dois ou mais carros diferentes que foram para a mesma cidade no mesmo dia. A cidade é a do lugar onde o carro desligou, tirada do endereço do relatório.</p>
           <div class="table-box cross-box"><table id="cross-tbl"></table></div>
+          <details class="cross-dest" id="cross-dest"><summary>Conferir as cidades de destino de cada carro</summary>
+            <div class="cross-dest-body"><p class="cross-desc">Cidade onde cada carro desligou, por dia. Se alguma estiver errada ou faltando, toque em <b>Copiar diagnóstico</b> e cole no chat com o Claude (é um texto pequeno, sem o PDF).</p>
+            <div><button type="button" id="btn-cross-diag">Copiar diagnóstico</button></div>
+            <div class="table-box"><table id="cross-dest-tbl"></table></div></div></details>
         </div>
       </section>
       <section class="vehicle" aria-label="Veículo">
@@ -635,19 +651,21 @@ function parseStrip(words,g){
 }
 
 /* ---------------- processamento do arquivo ---------------- */
+let LAST_RESULTS=[]; // resultados de cada PDF que está na tela (para Adicionar PDF)
 let BATCH=null; // leitura de vários PDFs: {i, n, name, results:[], errors:[]}
-async function processFiles(files){
-  if(files.length===1)return processFile(files[0]);
-  hideError();cancelFlag=false;DAY="all";VEH=null;$("#result").hidden=true;
-  BATCH={i:0,n:files.length,name:"",results:[],errors:[]};setBusy(true);
+async function processFiles(files,append){
+  if(files.length===1&&!append)return processFile(files[0]);
+  const keep=append?LAST_RESULTS.filter(r=>!files.some(f=>f.name===r.fileName)):[];
+  hideError();cancelFlag=false;if(!append){DAY="all";VEH=null;$("#result").hidden=true;}
+  BATCH={i:0,n:files.length,name:"",results:[...keep],errors:[]};setBusy(true);
   try{
     for(let i=0;i<files.length;i++){if(cancelFlag)break;BATCH.i=i;BATCH.name=files[i].name;await processFile(files[i]);
       if(BATCH.results.length&&!cancelFlag){STATE=mergeResults(BATCH.results,i+1<files.length?{done:i+1,n:files.length}:null);window.__lastResult=null;DAY=DAY||"all";render();}}
   }finally{
     const B=BATCH;BATCH=null;setBusy(false);
-    if(B.results.length){STATE=mergeResults(B.results,null);window.__lastResult=STATE;render();
+    if(B.results.length){LAST_RESULTS=B.results;STATE=mergeResults(B.results,null);window.__lastResult=STATE;render();
       if(cancelFlag&&B.results.length<B.n)toast("Leitura cancelada: mostrando "+(B.results.length===1?"o arquivo já lido":"os "+B.results.length+" arquivos já lidos"));}
-    else if(!B.results.length){STATE=null;$("#result").hidden=true;window.__lastResult={rows:[],failed:true};if(cancelFlag)toast("Leitura cancelada");}
+    else if(!B.results.length){LAST_RESULTS=[];STATE=null;$("#result").hidden=true;window.__lastResult={rows:[],failed:true};if(cancelFlag)toast("Leitura cancelada");}
     if(B.errors.length)showError("Não consegui ler "+(B.errors.length===1?"1 dos arquivos":B.errors.length+" dos arquivos")+":<ul style=\"margin:4px 0 0;padding-left:18px\">"+B.errors.map(x=>"<li><b>"+esc(x.name)+"</b>: "+x.msg+"</li>").join("")+"</ul>");
   }
 }
@@ -806,7 +824,7 @@ async function processFile(file){
   if(!fin.rows.length){STATE=null;setBusy(false);$("#result").hidden=true;$("#btn-copy").disabled=true;$("#btn-clear").disabled=true;
     showError("Não encontrei a tabela do relatório de percurso (colunas Data, Ignição e Posição) em nenhuma página deste PDF."+(DIAG?' Ele tem texto embutido num formato que eu ainda não conheço. <button type="button" data-diag>Copiar diagnóstico</button> e cole no chat com o Claude para ajustar.':''));
     window.__lastResult={rows:[],failed:true};return;}
-  STATE=fin;window.__lastResult=STATE;
+  STATE=fin;LAST_RESULTS=[fin];window.__lastResult=STATE;
   setBusy(false);DAY=DAY||"all";render();
   function assemble(list,partial){
   // veículo de cada página, pelo cabeçalho (arquivo de frota: vários carros no mesmo PDF)
@@ -1135,7 +1153,6 @@ function crossData(){
   const inclBase=$("#cross-base").checked;
   const groups=new Map();
   for(const x of visits){if(!inclBase&&x.city.key===baseKey)continue;
-    if(x.from&&x.from.key===x.city.key)continue; // deslocamento dentro da mesma cidade não é viagem para ela
     const g=x.day+"#"+x.city.key;if(!groups.has(g))groups.set(g,[]);groups.get(g).push(x);}
   const out=[];
   for(const [g,xs] of groups){const cars=[...new Set(xs.map(x=>x.veh))];if(cars.length<2)continue;
@@ -1144,9 +1161,11 @@ function crossData(){
     const span=x=>[x.arr,x.left?x.left.t:x.arr+60000];const together=new Set();
     for(let i=0;i<xs.length;i++)for(let j=i+1;j<xs.length;j++)if(xs[i].veh!==xs[j].veh){const A=span(xs[i]),B=span(xs[j]);if(A[0]<=B[1]&&B[0]<=A[1]){together.add(xs[i].plate);together.add(xs[j].plate);}}
     const same=together.size?[...together]:null;
-    out.push({day:xs[0].day,city:xs[0].city,visits:xs,cars,same});}
+    // um bloco por carro: primeira chegada, última saída e quantas paradas fez na cidade
+    const per=cars.map(vk=>{const vx=xs.filter(x=>x.veh===vk),lastLeft=[...vx].reverse().find(x=>x.left);return {veh:vk,plate:vx[0].plate,vi:vx[0].vi,first:vx[0],visits:vx,left:lastLeft?lastLeft.left:null,n:vx.length};}).sort((a,b)=>a.first.arr-b.first.arr);
+    out.push({day:xs[0].day,city:xs[0].city,visits:xs,cars,per,same});}
   out.sort((a,b)=>a.visits[0].arr-b.visits[0].arr);
-  return {list:out,baseCity,approx:visits.some(x=>x.city.how==="aproximada")};
+  return {list:out,baseCity,baseKey,visits,approx:visits.some(x=>x.city.how==="aproximada")};
 }
 let CROSS=null;
 async function renderCross(){
@@ -1162,14 +1181,41 @@ async function renderCross(){
   const hm=r=>timeOf(r.ts).slice(0,5);
   let h='<thead><tr><th>Dia</th><th>Cidade</th><th>Carros que foram</th><th></th></tr></thead><tbody>';
   D.list.forEach((e,k)=>{
-    const cars=e.visits.map(x=>'<div class="cross-car"><span class="sw" style="background:'+CAR_COLORS[x.vi%CAR_COLORS.length]+'"></span><span class="plate-s" style="cursor:default">'+esc(x.plate)+'</span>'+
-      '<span>'+(x.from?'saiu de '+esc(x.from.name)+(x.a?' às <span class="t">'+hm(x.a)+'</span>':'')+', ':'')+'chegou às <span class="t">'+hm(x.b)+'</span>'+(x.left?', ficou até <span class="t">'+hm(x.left)+'</span>':'')+'</span></div>').join("");
+    const cars=e.per.map(c=>{const x=c.first,inCity=x.from&&x.from.key===e.city.key;
+      return '<div class="cross-car"><span class="sw" style="background:'+CAR_COLORS[c.vi%CAR_COLORS.length]+'"></span><span class="plate-s" style="cursor:default">'+esc(c.plate)+'</span>'+
+      '<span>'+(x.from&&!inCity?'saiu de '+esc(x.from.name)+(x.a?' às <span class="t">'+hm(x.a)+'</span>':'')+', chegou às ':inCity?'rodou na cidade, 1ª parada às ':'chegou às ')+'<span class="t">'+hm(x.b)+'</span>'+(c.n>1?', última às <span class="t">'+hm(c.visits[c.n-1].b)+'</span> · '+c.n+' paradas':c.left?', ficou até <span class="t">'+hm(c.left)+'</span>'+(dayOf(c.left.ts)!==e.day?' de '+c.left.ts.slice(0,5):''):'')+'</span></div>';}).join("");
     h+='<tr class="r"><td data-l="Dia"><div><span class="t">'+weekday(e.day)+' '+e.day.slice(0,5)+'</span></div></td><td data-l="Cidade"><div><span class="cross-city">'+esc(e.city.name)+' <span class="uf">'+e.city.uf+'</span></span>'+(e.city.how==="aproximada"?'<div class="d">cidade pela localização</div>':'')+'</div></td>'+
       '<td data-l="Carros"><div class="cross-cars">'+cars+(e.same?'<div><span class="tag same">'+esc(e.same.length===2?e.same.join(" e "):e.same.slice(0,-1).join(", ")+" e "+e.same[e.same.length-1])+' estiveram lá ao mesmo tempo</span></div>':'')+'</div></td>'+
       '<td data-l="Mapa"><div><button type="button" class="trip-btn" data-cross="'+k+'" style="margin-top:0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg>Ver no mapa</button></div></td></tr>';});
-  if(!D.list.length)h+='<tr><td colspan="4" class="empty">Nenhuma viagem repetida: não houve dois carros indo para a mesma cidade no mesmo dia'+(D.baseCity&&!$("#cross-base").checked?' (fora '+esc(D.baseCity.name)+', a cidade-base)':'')+'.</td></tr>';
+  if(!D.list.length)h+='<tr><td colspan="4" class="empty">'+(D.baseCity&&!$("#cross-base").checked?'Nenhum dia com dois carros indo para a mesma cidade fora de <b>'+esc(D.baseCity.name)+'</b> (a cidade-base, que fica de fora).<br>Marque <b>Contar a cidade-base</b> para ver também os dias em que dois carros rodaram em '+esc(D.baseCity.name)+'.':'Nenhum dia com dois carros indo para a mesma cidade.')+'</td></tr>';
   $("#cross-tbl").innerHTML=h+"</tbody>";
   $("#btn-cross-csv").disabled=!D.list.length;
+  renderCrossDest(D);
+}
+function crossEnds(){ // todas as paradas (desligou) de cada carro, com a cidade identificada ou não
+  const S=STATE,vs=vehList(S)||[],out=[];
+  for(const v of vs){const rows=S.rows.filter(r=>r.veh===v.key);if(!rows.length)continue;
+    for(const u of build(rows).usos){if(!u.end)continue;const b=u.end.row;out.push({plate:v.meta.plate||v.key,day:dayOf(b.ts),b,city:cityOf(b)});}}
+  return out;
+}
+function renderCrossDest(D){
+  const ends=crossEnds(),by=new Map();
+  for(const e of ends){const k=e.plate+"#"+e.day;if(!by.has(k))by.set(k,{plate:e.plate,day:e.day,cities:new Map(),none:0});const g=by.get(k);
+    if(e.city){const c=g.cities.get(e.city.key)||{c:e.city,n:0};c.n++;g.cities.set(e.city.key,c);}else g.none++;}
+  let h='<thead><tr><th>Placa</th><th>Dia</th><th>Cidades onde desligou</th></tr></thead><tbody>';
+  for(const g of by.values())h+='<tr class="r"><td data-l="Placa"><div><span class="plate-s" style="cursor:default">'+esc(g.plate)+'</span></div></td><td data-l="Dia"><div><span class="t">'+weekday(g.day)+' '+g.day.slice(0,5)+'</span></div></td><td data-l="Cidades"><div>'+
+    [...g.cities.values()].map(x=>'<span class="city-chip'+(x.c.key===D.baseKey?' base':'')+'">'+esc(x.c.name)+' '+x.c.uf+(x.c.how==="aproximada"?' *':'')+(x.n>1?' · '+x.n+'×':'')+'</span>').join("")+(g.none?'<span class="city-chip none">'+g.none+' sem cidade</span>':'')+'</div></td></tr>';
+  if(!by.size)h+='<tr><td colspan="3" class="empty">Nenhuma parada encontrada.</td></tr>';
+  $("#cross-dest-tbl").innerHTML=h+"</tbody>";
+  if(!D.list.length)$("#cross-dest").open=true;
+}
+function crossDiag(){
+  const D=CROSS,ends=crossEnds();
+  const L=["DIAGNOSTICO VIAGENS · Diario de Ignicao · "+(vehList(STATE)||[]).length+" carros · cidade-base: "+(D&&D.baseCity?D.baseCity.name+" "+D.baseCity.uf:"-")+" · repetidas: "+(D?D.list.length:0)+" · contar base: "+($("#cross-base").checked?"sim":"nao"),
+    "placa | desligou | cidade (como) | endereco | coordenada"];
+  for(const e of ends.slice(0,600))L.push([e.plate,e.b.ts.slice(0,16),e.city?e.city.name+" "+e.city.uf+" ("+e.city.how+")":"SEM CIDADE",(e.b.addr||"(sem endereco)").slice(0,90),coordTxt(e.b)].join(" | "));
+  if(ends.length>600)L.push("... mais "+(ends.length-600)+" paradas");
+  return L.join("\n");
 }
 function crossRows(){
   const D=CROSS;if(!D)return [];
@@ -1181,8 +1227,8 @@ function crossRows(){
 async function openCross(k){
   const e=CROSS&&CROSS.list[k];if(!e)return;const dlg=$("#trip");
   $("#trip-title").textContent="Viagens para "+e.city.name+" "+e.city.uf+" · "+weekday(e.day)+" "+e.day.slice(0,5);
-  $("#trip-sub").textContent=e.cars.length+" carros foram para a mesma cidade neste dia"+(e.same?" · "+e.same.join(", ")+" estiveram lá ao mesmo tempo":"");
-  const trips=e.visits.map(x=>({x,t:tripOf(x.u,x.rows),color:CAR_COLORS[x.vi%CAR_COLORS.length]}));
+  $("#trip-sub").textContent=e.cars.length+" carros estiveram nesta cidade neste dia"+(e.same?" · "+e.same.join(", ")+" estiveram lá ao mesmo tempo":"");
+  const trips=e.visits.map(x=>({x,t:tripOf(x.u,x.rows),color:CAR_COLORS[x.vi%CAR_COLORS.length]}))
   $("#trip-info").innerHTML='<div class="trip-legend">'+trips.map(({x,t,color})=>{const url=routeUrl(t);
     return '<div class="row"><span class="sw" style="background:'+color+'"></span><div style="min-width:0"><b>'+esc(x.plate)+'</b> · '+(x.a?'ligou <span class="t">'+timeOf(x.a.ts)+'</span>'+(x.from?' em '+esc(x.from.name):'')+' → ':'')+'desligou <span class="t">'+timeOf(x.b.ts)+'</span>'+(x.b.addr?' · <span class="muted">'+esc(x.b.addr)+'</span>':'')+
       (url?' · <a href="'+url+'" target="_blank" rel="noopener">trajeto no Google Maps</a>':'')+'</div></div>';}).join("")+'</div><span class="trip-note" id="trip-maperr"></span>';
@@ -1195,8 +1241,8 @@ async function openCross(k){
   let tileErr=0;tl.on("tileerror",()=>{if(++tileErr===3)$("#trip-maperr").textContent="O fundo do mapa não carregou aqui; as linhas e os pontos continuam certos.";});
   const all=[];
   // linhas: a primeira mais grossa, as outras por cima e mais finas, para ver trajetos que se sobrepõem
-  trips.forEach(({t,color},k)=>{const ll=t.pts.map(r=>[r.lat,r.lon]);all.push(...ll);
-    if(ll.length>=2)L.polyline(ll,{color,weight:Math.max(3,4+3*(trips.length-1-k)),opacity:.9}).addTo(map);});
+  trips.forEach(({x,t,color})=>{const ll=t.pts.map(r=>[r.lat,r.lon]);all.push(...ll);
+    if(ll.length>=2)L.polyline(ll,{color,weight:Math.max(3,4+3*(e.cars.length-1-e.cars.indexOf(x.veh))),opacity:.9}).addTo(map);});
   // chegadas no mesmo ponto viram um marcador só, com as placas
   const ends=[];for(const {x,color} of trips){if(x.b.lat==null)continue;const g=ends.find(q=>haversineKm(q.r,x.b)<0.08);if(g)g.items.push({x,color});else ends.push({r:x.b,items:[{x,color}]});}
   for(const g of ends){const html='<div style="display:inline-flex;gap:2px;transform:translate(-50%,-50%);white-space:nowrap">'+g.items.map(({x,color})=>'<span class="trip-pin" style="background:'+color+';width:auto;padding:0 6px;border-radius:11px">'+esc(x.plate)+'</span>').join("")+'</div>';
@@ -1204,6 +1250,9 @@ async function openCross(k){
   requestAnimationFrame(()=>{map.invalidateSize();if(all.length>1)map.fitBounds(all,{padding:[40,40],maxZoom:15});else if(all.length)map.setView(all[0],14);});
 }
 $("#cross-base").onchange=()=>renderCross();
+$("#btn-cross-diag").onclick=async()=>{const t=crossDiag();
+  try{await navigator.clipboard.writeText(t);toast("Diagnóstico copiado. Cole no chat com o Claude.");}
+  catch(e){const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy");}catch(_){}ta.remove();toast(ok?"Diagnóstico copiado. Cole no chat com o Claude.":"Não consegui copiar.");}};
 $("#cross-tbl").addEventListener("click",e=>{const b=e.target.closest("[data-cross]");if(b)openCross(+b.dataset.cross);});
 $("#btn-cross-csv").onclick=async()=>{const rows=crossRows();if(rows.length<2)return;
   if(DL){const csv="\ufeff"+rows.map(r=>r.map(c=>{const s=String(c);return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(";")).join("\r\n");
@@ -1311,18 +1360,20 @@ async function downloadCsv(fleet){
 
 /* ---------------- interface ---------------- */
 window.setBusy=setBusy;window.showError=showError;
-function setBusy(b){$("#progress").hidden=!b;$("#drop").hidden=b;$("#btn-open").disabled=b;}
+function setBusy(b){$("#progress").hidden=!b;$("#drop").hidden=b;$("#btn-open").disabled=b;$("#btn-add").disabled=b||!LAST_RESULTS.length;}
 function progress(f,title,detail,eta){if(BATCH){f=(BATCH.i+Math.min(1,f))/BATCH.n;title="Arquivo "+(BATCH.i+1)+" de "+BATCH.n+" · "+title;detail=BATCH.name+(detail?" · "+detail:"");}$("#pg-bar").style.width=Math.round(f*100)+"%";$("#pg-meter").setAttribute("aria-valuenow",Math.round(f*100));$("#pg-title").textContent=title;$("#pg-detail").textContent=detail;$("#pg-eta").textContent=eta;}
 function showError(msg){$("#error").hidden=false;$("#error-text").innerHTML=msg;}
 function hideError(){$("#error").hidden=true;}
 $("#btn-open").onclick=()=>$("#file").click();
+$("#btn-add").onclick=()=>$("#file-add").click();
+$("#file-add").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)processFiles(fs,true);};
 $("#btn-open2").onclick=()=>$("#file").click();
 $("#file").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)processFiles(fs);};
 $("#btn-cancel").onclick=()=>{cancelFlag=true;$("#pg-title").textContent="Cancelando…";};
 $("#btn-copy").onclick=copyTable;
 function clearAll(){
   if(!$("#progress").hidden)cancelFlag=true;
-  STATE=null;window.__lastResult=null;DAY="all";VIEW="usos";VEH=null;$("#fleet").hidden=true;
+  STATE=null;LAST_RESULTS=[];window.__lastResult=null;DAY="all";VIEW="usos";VEH=null;$("#fleet").hidden=true;$("#btn-add").disabled=true;
   $("#result").hidden=true;$("#drop").classList.remove("compact");$("#tbl").innerHTML="";$("#q-body").innerHTML="";
   $("#btn-copy").disabled=true;$("#btn-csv").disabled=true;$("#btn-clear").disabled=true;hideError();
   toast("Tela limpa. Abra um PDF para começar.");
@@ -1343,7 +1394,7 @@ document.addEventListener("drop",e=>{const fs=e.dataTransfer?[...e.dataTransfer.
 
 // download pela plataforma, quando disponível
 (async()=>{try{const d=window.claude&&window.claude.use?await window.claude.use("downloads"):null;if(d){DL=d;$("#btn-csv").hidden=false;$("#btn-csv").disabled=!STATE;}}catch(_){}})();
-const _render=render;render=function(){_render();if(DL)$("#btn-csv").disabled=false;};
+const _render=render;render=function(){_render();if(DL)$("#btn-csv").disabled=false;$("#btn-add").disabled=!LAST_RESULTS.length;};
 
 if(!(window.claude&&window.claude.use)){
   DL={save:async({filename,data})=>{const u=URL.createObjectURL(new Blob([data],{type:"text/csv;charset=utf-8"}));
