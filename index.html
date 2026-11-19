@@ -182,6 +182,29 @@ th.num{text-align:right}
 .src{font-size:12px;color:var(--text-2);white-space:nowrap}
 .empty{padding:32px 16px;text-align:center;color:var(--text-2)}
 
+/* viagens repetidas entre carros */
+.cross{display:flex;flex-direction:column;gap:10px}
+.cross-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.cross-head h2{font-size:15px;font-weight:600}
+.cross-head h2 .muted{font-weight:400}
+.cross-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.cross-tools label{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--text-2);cursor:pointer}
+.cross-tools input{accent-color:var(--primary);width:15px;height:15px}
+.cross-desc{font-size:12px;color:var(--text-2);margin:0}
+.cross-box{max-height:520px}
+.cross-city{font-weight:600}
+.cross-city .uf{font-weight:400;color:var(--text-2)}
+.cross-cars{display:flex;flex-direction:column;gap:6px}
+.cross-car{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:12.5px}
+.cross-car .sw{width:10px;height:10px;border-radius:2px;flex:none;align-self:center}
+.cross-car .t{font-size:12.5px}
+.tag.same{background:var(--warning-soft);color:var(--warning)}
+.trip-legend{display:flex;flex-direction:column;gap:8px}
+.trip-legend .row{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.trip-legend .sw{width:14px;height:4px;border-radius:2px;margin-top:8px;flex:none}
+.trip-legend a{font-size:12.5px;text-decoration:none}
+.trip-legend a:hover{text-decoration:underline}
+
 /* trajeto */
 .trip-btn{height:26px;padding:0 8px;font-size:12px;margin-top:6px;gap:5px;font-family:var(--font-ui);letter-spacing:0}
 .trip-btn svg{width:13px;height:13px}
@@ -325,6 +348,13 @@ footer p{margin:0 0 6px}
         <div class="fleet-head"><h2>Veículos neste arquivo <span class="muted" id="fleet-n"></span></h2>
           <button type="button" id="btn-fleet-csv">Planilha da frota inteira</button></div>
         <div class="table-box fleet-box"><table id="fleet-tbl"></table></div>
+        <div class="cross" id="cross" hidden>
+          <div class="cross-head"><h2>Viagens repetidas entre carros <span class="muted" id="cross-n"></span></h2>
+            <div class="cross-tools"><label><input type="checkbox" id="cross-base"> <span id="cross-base-lbl">Contar a cidade-base</span></label>
+              <button type="button" id="btn-cross-csv">Planilha das viagens repetidas</button></div></div>
+          <p class="cross-desc" id="cross-desc">Dois ou mais carros diferentes que foram para a mesma cidade no mesmo dia. A cidade é a do lugar onde o carro desligou, tirada do endereço do relatório.</p>
+          <div class="table-box cross-box"><table id="cross-tbl"></table></div>
+        </div>
       </section>
       <section class="vehicle" aria-label="Veículo">
         <div class="vehicle-head">
@@ -939,6 +969,7 @@ function renderFleet(){
       '<td data-l="Partidas" class="dur"><div>'+(st?st.starts:"—")+'</div></td><td data-l="Tempo ligado" class="dur"><div>'+(st?fmtDur(st.tot):"—")+'</div></td>'+
       '<td data-l="Cobertos"><div class="mono" style="font-size:12.5px">'+(st&&st.first?esc(st.first.ts.slice(0,16)+" a "+st.last.ts.slice(0,16)):'<span class="muted">sem registros de percurso</span>')+'</div></td></tr>';}
   $("#fleet-tbl").innerHTML=h+"</tbody>";
+  renderCross();
 }
 function render(){
   if(!STATE)return;
@@ -1063,6 +1094,123 @@ function checkSequence(rows){
   return null;
 }
 
+/* ---------------- viagens repetidas: carros diferentes indo para a mesma cidade no mesmo dia ---------------- */
+const UFS=new Set("AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" "));
+const CAR_COLORS=["#1E4E8C","#B7791F","#7C3AED","#0E7490","#BE185D","#4D7C0F","#9A3412","#334155"];
+let MUN=null,MUN_P=null;
+function loadMun(){
+  if(MUN)return Promise.resolve(MUN);
+  if(!MUN_P)MUN_P=(EMB&&EMB.mun?Promise.resolve(EMB.mun):fetch(LIB+"municipios.txt").then(r=>{if(!r.ok)throw new Error("municipios");return r.text();})).then(txt=>{
+    const byKey=new Map(),list=[];
+    for(const ln of txt.split("\n")){if(!ln||ln[0]==="#")continue;const [n,uf,la,lo]=ln.split(";");const m={name:n,uf,lat:+la,lon:+lo};list.push(m);byKey.set(uf+"|"+normCity(n),m);}
+    return MUN={byKey,list,cache:new Map()};}).catch(e=>{MUN_P=null;throw e;});
+  return MUN_P;
+}
+function normCity(t){return norm(t).replace(/[^A-Z0-9 ]+/g," ").replace(/\s+/g," ").trim();}
+function cityOf(r){ // 1º pelo endereço (nome do município antes da UF); se não der, a sede de município mais próxima
+  const M=MUN;if(!M)return null;
+  const ck=(r.addr||"")+"|"+(r.lat!=null?r.lat.toFixed(3)+","+r.lon.toFixed(3):"");
+  if(M.cache.has(ck))return M.cache.get(ck);
+  let found=null;
+  const w=normCity(r.addr||"").split(" ").filter(Boolean);
+  const tryAt=(end,uf)=>{for(let len=Math.min(6,end);len>=1;len--){const m=M.byKey.get(uf+"|"+w.slice(end-len,end).join(" "));if(m)return m;}return null;};
+  for(let j=w.length-1;j>=0&&!found;j--)if(UFS.has(w[j])){found=tryAt(j,w[j])||(j===0?tryAt(w.length,w[j]):null);}
+  let how="endereço";
+  if(!found&&r.lat!=null){let best=null,bd=Infinity;for(const m of M.list){const d=haversineKm(r,m);if(d<bd){bd=d;best=m;}}if(best&&bd<=40){found=best;how="aproximada";}}
+  const res=found?{name:found.name,uf:found.uf,key:found.uf+"|"+found.name,how}:null;
+  M.cache.set(ck,res);return res;
+}
+function crossData(){
+  const S=STATE,vs=vehList(S);if(!vs||!MUN)return null;
+  const visits=[]; // cada chegada (desligou) de cada carro, com a cidade
+  vs.forEach((v,vi)=>{const rows=S.rows.filter(r=>r.veh===v.key);if(!rows.length)return;
+    const {usos}=build(rows);
+    usos.forEach((u,k)=>{if(!u.end)return;const b=u.end.row,c=cityOf(b);if(!c)return;
+      const a=u.start?u.start.row:null,next=usos[k+1]&&usos[k+1].start?usos[k+1].start.row:null;
+      const ca=a?cityOf(a):null,nc=next?cityOf(next):null;
+      visits.push({veh:v.key,plate:v.meta.plate||v.key,vi,day:dayOf(b.ts),city:c,from:ca,a,b,arr:b.t,left:next&&nc&&nc.key===c.key?next:null,u,rows});});});
+  const cnt={};for(const x of visits)cnt[x.city.key]=(cnt[x.city.key]||0)+1;
+  const base=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+  const baseKey=base?base[0]:null,baseCity=baseKey?visits.find(x=>x.city.key===baseKey).city:null;
+  const inclBase=$("#cross-base").checked;
+  const groups=new Map();
+  for(const x of visits){if(!inclBase&&x.city.key===baseKey)continue;
+    if(x.from&&x.from.key===x.city.key)continue; // deslocamento dentro da mesma cidade não é viagem para ela
+    const g=x.day+"#"+x.city.key;if(!groups.has(g))groups.set(g,[]);groups.get(g).push(x);}
+  const out=[];
+  for(const [g,xs] of groups){const cars=[...new Set(xs.map(x=>x.veh))];if(cars.length<2)continue;
+    xs.sort((a,b)=>a.arr-b.arr);
+    // ficaram na cidade ao mesmo tempo?
+    const span=x=>[x.arr,x.left?x.left.t:x.arr+60000];const together=new Set();
+    for(let i=0;i<xs.length;i++)for(let j=i+1;j<xs.length;j++)if(xs[i].veh!==xs[j].veh){const A=span(xs[i]),B=span(xs[j]);if(A[0]<=B[1]&&B[0]<=A[1]){together.add(xs[i].plate);together.add(xs[j].plate);}}
+    const same=together.size?[...together]:null;
+    out.push({day:xs[0].day,city:xs[0].city,visits:xs,cars,same});}
+  out.sort((a,b)=>a.visits[0].arr-b.visits[0].arr);
+  return {list:out,baseCity,approx:visits.some(x=>x.city.how==="aproximada")};
+}
+let CROSS=null;
+async function renderCross(){
+  const S=STATE,vs=vehList(S),box=$("#cross");
+  if(!vs){box.hidden=true;CROSS=null;return;}
+  box.hidden=false;
+  if(!MUN){$("#cross-tbl").innerHTML='<tbody><tr><td class="empty">Identificando as cidades…</td></tr></tbody>';
+    try{await loadMun();}catch(e){$("#cross-tbl").innerHTML='<tbody><tr><td class="empty">Não consegui carregar a lista de municípios. Recarregue a página.</td></tr></tbody>';return;}
+    if(STATE!==S)return;}
+  const D=CROSS=crossData();if(!D)return;
+  $("#cross-base-lbl").textContent=D.baseCity?"Contar a cidade-base ("+D.baseCity.name+" "+D.baseCity.uf+")":"Contar a cidade-base";
+  $("#cross-n").textContent="· "+D.list.length+(D.list.length===1?" ocorrência":" ocorrências");
+  const hm=r=>timeOf(r.ts).slice(0,5);
+  let h='<thead><tr><th>Dia</th><th>Cidade</th><th>Carros que foram</th><th></th></tr></thead><tbody>';
+  D.list.forEach((e,k)=>{
+    const cars=e.visits.map(x=>'<div class="cross-car"><span class="sw" style="background:'+CAR_COLORS[x.vi%CAR_COLORS.length]+'"></span><span class="plate-s" style="cursor:default">'+esc(x.plate)+'</span>'+
+      '<span>'+(x.from?'saiu de '+esc(x.from.name)+(x.a?' às <span class="t">'+hm(x.a)+'</span>':'')+', ':'')+'chegou às <span class="t">'+hm(x.b)+'</span>'+(x.left?', ficou até <span class="t">'+hm(x.left)+'</span>':'')+'</span></div>').join("");
+    h+='<tr class="r"><td data-l="Dia"><div><span class="t">'+weekday(e.day)+' '+e.day.slice(0,5)+'</span></div></td><td data-l="Cidade"><div><span class="cross-city">'+esc(e.city.name)+' <span class="uf">'+e.city.uf+'</span></span>'+(e.city.how==="aproximada"?'<div class="d">cidade pela localização</div>':'')+'</div></td>'+
+      '<td data-l="Carros"><div class="cross-cars">'+cars+(e.same?'<div><span class="tag same">'+esc(e.same.length===2?e.same.join(" e "):e.same.slice(0,-1).join(", ")+" e "+e.same[e.same.length-1])+' estiveram lá ao mesmo tempo</span></div>':'')+'</div></td>'+
+      '<td data-l="Mapa"><div><button type="button" class="trip-btn" data-cross="'+k+'" style="margin-top:0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg>Ver no mapa</button></div></td></tr>';});
+  if(!D.list.length)h+='<tr><td colspan="4" class="empty">Nenhuma viagem repetida: não houve dois carros indo para a mesma cidade no mesmo dia'+(D.baseCity&&!$("#cross-base").checked?' (fora '+esc(D.baseCity.name)+', a cidade-base)':'')+'.</td></tr>';
+  $("#cross-tbl").innerHTML=h+"</tbody>";
+  $("#btn-cross-csv").disabled=!D.list.length;
+}
+function crossRows(){
+  const D=CROSS;if(!D)return [];
+  const out=[["Dia","Cidade de destino","UF","Placa","Saiu de","Saiu (hora)","Chegou (hora)","Ficou até","Endereço de chegada","Coordenada de chegada","Trajeto no Google Maps","Estiveram lá ao mesmo tempo","Cidade identificada por"]];
+  for(const e of D.list)for(const x of e.visits)
+    out.push([e.day,e.city.name,e.city.uf,x.plate,x.from?x.from.name+" "+x.from.uf:"",x.a?timeOf(x.a.ts):"",timeOf(x.b.ts),x.left?timeOf(x.left.ts):"",x.b.addr||"",coordTxt(x.b),routeUrl(tripOf(x.u,x.rows))||"",e.same&&e.same.includes(x.plate)?"sim":"não",e.city.how]);
+  return out;
+}
+async function openCross(k){
+  const e=CROSS&&CROSS.list[k];if(!e)return;const dlg=$("#trip");
+  $("#trip-title").textContent="Viagens para "+e.city.name+" "+e.city.uf+" · "+weekday(e.day)+" "+e.day.slice(0,5);
+  $("#trip-sub").textContent=e.cars.length+" carros foram para a mesma cidade neste dia"+(e.same?" · "+e.same.join(", ")+" estiveram lá ao mesmo tempo":"");
+  const trips=e.visits.map(x=>({x,t:tripOf(x.u,x.rows),color:CAR_COLORS[x.vi%CAR_COLORS.length]}));
+  $("#trip-info").innerHTML='<div class="trip-legend">'+trips.map(({x,t,color})=>{const url=routeUrl(t);
+    return '<div class="row"><span class="sw" style="background:'+color+'"></span><div style="min-width:0"><b>'+esc(x.plate)+'</b> · '+(x.a?'ligou <span class="t">'+timeOf(x.a.ts)+'</span>'+(x.from?' em '+esc(x.from.name):'')+' → ':'')+'desligou <span class="t">'+timeOf(x.b.ts)+'</span>'+(x.b.addr?' · <span class="muted">'+esc(x.b.addr)+'</span>':'')+
+      (url?' · <a href="'+url+'" target="_blank" rel="noopener">trajeto no Google Maps</a>':'')+'</div></div>';}).join("")+'</div><span class="trip-note" id="trip-maperr"></span>';
+  if(!dlg.open)dlg.showModal();
+  let L;try{L=await loadLeaflet();}catch(err){$("#trip-map").innerHTML='<div class="empty">Não consegui carregar o mapa aqui (precisa de internet).</div>';return;}
+  if(TRIP_MAP){TRIP_MAP.remove();TRIP_MAP=null;}
+  $("#trip-map").innerHTML="";
+  const map=TRIP_MAP=L.map("trip-map");
+  const tl=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'}).addTo(map);
+  let tileErr=0;tl.on("tileerror",()=>{if(++tileErr===3)$("#trip-maperr").textContent="O fundo do mapa não carregou aqui; as linhas e os pontos continuam certos.";});
+  const all=[];
+  // linhas: a primeira mais grossa, as outras por cima e mais finas, para ver trajetos que se sobrepõem
+  trips.forEach(({t,color},k)=>{const ll=t.pts.map(r=>[r.lat,r.lon]);all.push(...ll);
+    if(ll.length>=2)L.polyline(ll,{color,weight:Math.max(3,4+3*(trips.length-1-k)),opacity:.9}).addTo(map);});
+  // chegadas no mesmo ponto viram um marcador só, com as placas
+  const ends=[];for(const {x,color} of trips){if(x.b.lat==null)continue;const g=ends.find(q=>haversineKm(q.r,x.b)<0.08);if(g)g.items.push({x,color});else ends.push({r:x.b,items:[{x,color}]});}
+  for(const g of ends){const html='<div style="display:inline-flex;gap:2px;transform:translate(-50%,-50%);white-space:nowrap">'+g.items.map(({x,color})=>'<span class="trip-pin" style="background:'+color+';width:auto;padding:0 6px;border-radius:11px">'+esc(x.plate)+'</span>').join("")+'</div>';
+    L.marker([g.r.lat,g.r.lon],{icon:L.divIcon({className:"",html,iconSize:[0,0],iconAnchor:[0,0]}),title:g.items.map(i=>i.x.plate+" desligou "+timeOf(i.x.b.ts)).join(" · ")}).addTo(map);}
+  requestAnimationFrame(()=>{map.invalidateSize();if(all.length>1)map.fitBounds(all,{padding:[40,40],maxZoom:15});else if(all.length)map.setView(all[0],14);});
+}
+$("#cross-base").onchange=()=>renderCross();
+$("#cross-tbl").addEventListener("click",e=>{const b=e.target.closest("[data-cross]");if(b)openCross(+b.dataset.cross);});
+$("#btn-cross-csv").onclick=async()=>{const rows=crossRows();if(rows.length<2)return;
+  if(DL){const csv="\ufeff"+rows.map(r=>r.map(c=>{const s=String(c);return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(";")).join("\r\n");
+    try{await DL.save({filename:"viagens_repetidas.csv",data:csv});toast("Planilha salva");}catch(err){if(err&&err.code!=="declined")toast("Não foi possível baixar aqui.");}return;}
+  const tsv=rows.map(r=>r.map(c=>String(c).replace(/[\t\n]/g," ")).join("\t")).join("\n");
+  try{await navigator.clipboard.writeText(tsv);toast("Viagens repetidas copiadas. Cole no Excel ou no Google Planilhas.");}catch(err){toast("Não consegui copiar.");}};
+
 /* ---------------- trajeto (ligou → desligou) ---------------- */
 function tripOf(u,rows){ // pontos do relatório entre a partida e a parada
   const i0=u.start?u.start.row.i:0,i1=u.end?u.end.row.i:rows.length-1;
@@ -1073,7 +1221,7 @@ function tripOf(u,rows){ // pontos do relatório entre a partida e a parada
 }
 function routeUrl(t){ // Google Maps com o caminho real: partida, até 8 pontos intermediários e parada
   const c=r=>r.lat+","+r.lon,a=t.a,b=t.b;if(a.lat==null||b.lat==null)return null;
-  const mid=t.pts.filter(r=>r!==a&&r!==b);const way=[];
+  const mid=t.pts.filter(r=>r!==a&&r!==b&&haversineKm(r,b)>0.05&&haversineKm(r,a)>0.05);const way=[];
   if(mid.length){const n=Math.min(8,mid.length);for(let k=0;k<n;k++){const r=mid[Math.floor((k+0.5)*mid.length/n)];const last=way[way.length-1]||a;if(haversineKm(last,r)>0.05)way.push(r);}}
   return "https://www.google.com/maps/dir/?api=1&origin="+c(a)+"&destination="+c(b)+(way.length?"&waypoints="+encodeURIComponent(way.map(c).join("|")):"")+"&travelmode=driving";
 }
