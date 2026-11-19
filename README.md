@@ -5,13 +5,13 @@ Lê o PDF do **Relatório de percurso** do rastreador e mostra só o que interes
 ## Como usar
 
 1. Abra o site (GitHub Pages deste repositório).
-2. Clique em **Abrir PDF** ou arraste o arquivo para a página.
+2. Clique em **Abrir PDF** ou arraste o arquivo para a página. Dá para selecionar **vários PDFs de uma vez** (um por carro, ou partes do mesmo carro).
 3. Veja os usos (ligou → desligou) ou os eventos, filtre por dia e baixe a planilha (.csv).
 
 - O PDF é lido **no próprio navegador**: o arquivo não é enviado para nenhum servidor.
 - PDF com texto embutido é lido em segundos, mesmo com mais de 1000 páginas.
 - PDF em imagem (escaneado/impresso) é lido por OCR, com dupla leitura de cada evento.
-- Arquivo de frota (vários veículos no mesmo PDF) é separado por placa, com planilha da frota inteira.
+- Arquivo de frota (vários veículos no mesmo PDF) ou vários PDFs abertos juntos são separados por placa, com planilha da frota inteira. PDFs do mesmo carro são juntados em ordem de data e hora, sem contar registro repetido.
 - **Ver trajeto**: em cada uso, abre um mapa com o caminho feito do ponto A (ligou) ao ponto B (desligou), pelas posições do relatório, e um botão para abrir o trajeto no Google Maps.
 
 ## Arquivos

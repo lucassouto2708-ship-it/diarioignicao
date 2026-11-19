@@ -293,7 +293,7 @@ footer p{margin:0 0 6px}
       <button id="btn-open" type="button" class="btn-primary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4Z"/><path d="M14 3v4h4"/></svg>
         Abrir PDF</button>
-      <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+      <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
     </div>
   </div>
 </header>
@@ -302,7 +302,7 @@ footer p{margin:0 0 6px}
 <div class="wrap">
   <section id="drop" class="drop" aria-label="Enviar relatório">
     <div>
-      <p class="lead">Arraste aqui o PDF do relatório de percurso</p>
+      <p class="lead">Arraste aqui o PDF do relatório de percurso (um ou vários)</p>
       <p class="muted">Aceita o relatório completo, com qualquer número de páginas. O arquivo é lido no seu navegador e não é enviado para nenhum servidor.</p>
     </div>
     <button id="btn-open2" type="button">Escolher arquivo</button>
@@ -605,8 +605,26 @@ function parseStrip(words,g){
 }
 
 /* ---------------- processamento do arquivo ---------------- */
+let BATCH=null; // leitura de vários PDFs: {i, n, name, results:[], errors:[]}
+async function processFiles(files){
+  if(files.length===1)return processFile(files[0]);
+  hideError();cancelFlag=false;DAY="all";VEH=null;$("#result").hidden=true;
+  BATCH={i:0,n:files.length,name:"",results:[],errors:[]};setBusy(true);
+  try{
+    for(let i=0;i<files.length;i++){if(cancelFlag)break;BATCH.i=i;BATCH.name=files[i].name;await processFile(files[i]);
+      if(BATCH.results.length&&!cancelFlag){STATE=mergeResults(BATCH.results,i+1<files.length?{done:i+1,n:files.length}:null);window.__lastResult=null;DAY=DAY||"all";render();}}
+  }finally{
+    const B=BATCH;BATCH=null;setBusy(false);
+    if(B.results.length){STATE=mergeResults(B.results,null);window.__lastResult=STATE;render();
+      if(cancelFlag&&B.results.length<B.n)toast("Leitura cancelada: mostrando "+(B.results.length===1?"o arquivo já lido":"os "+B.results.length+" arquivos já lidos"));}
+    else if(!B.results.length){STATE=null;$("#result").hidden=true;window.__lastResult={rows:[],failed:true};if(cancelFlag)toast("Leitura cancelada");}
+    if(B.errors.length)showError("Não consegui ler "+(B.errors.length===1?"1 dos arquivos":B.errors.length+" dos arquivos")+":<ul style=\"margin:4px 0 0;padding-left:18px\">"+B.errors.map(x=>"<li><b>"+esc(x.name)+"</b>: "+x.msg+"</li>").join("")+"</ul>");
+  }
+}
 async function processFile(file){
-  hideError();cancelFlag=false;DAY="all";VEH=null;
+  const showError=msg=>{if(BATCH)BATCH.errors.push({name:file.name,msg});else window.showError(msg);};
+  const setBusy=b=>{if(!BATCH)window.setBusy(b);};
+  if(!BATCH){hideError();cancelFlag=false;DAY="all";VEH=null;}
   if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf"){showError("Esse arquivo não é um PDF. Escolha o PDF do relatório de percurso.");return;}
   if(typeof pdfjsLib==="undefined"){showError("O leitor de PDF não carregou. Recarregue a página e tente de novo.");return;}
   setBusy(true);progress(0,"Abrindo "+file.name+"…","","");
@@ -615,7 +633,7 @@ async function processFile(file){
     pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;}
   catch(e){setBusy(false);showError("Não consegui abrir esse PDF. Ele pode estar protegido por senha ou corrompido.");return;}
   const N=pdf.numPages, pages=new Array(N), t0=performance.now();
-  let done=0, mode=null, ocrUsed=0;DIAG=null;$("#btn-diag").hidden=true;$("#result").hidden=true;
+  let done=0, mode=null, ocrUsed=0;DIAG=null;$("#btn-diag").hidden=true;if(!BATCH)$("#result").hidden=true;
   const alerts=[];
   // 1) tenta texto embutido em cada página; 2) se não houver, OCR
   const maxConc=(navigator.deviceMemory&&navigator.deviceMemory<=4)?3:6;
@@ -703,7 +721,7 @@ async function processFile(file){
   }
   let shown=0;
   const prefixLen=()=>{let k=0;while(k<N&&pages[k])k++;return k;};
-  function maybePartial(){const k=prefixLen();if(k<N&&k>=shown+100&&!cancelFlag){const st=assemble(pages.slice(0,k-(k%100)),true);if(st.rows.length){shown=k-(k%100);STATE=st;DAY=DAY||"all";render();}}}
+  function maybePartial(){const k=prefixLen();if(k<N&&k>=shown+100&&!cancelFlag){const st=assemble(pages.slice(0,k-(k%100)),true);if(st.rows.length){shown=k-(k%100);STATE=BATCH?mergeResults([...BATCH.results,st],{done:BATCH.i,n:BATCH.n}):st;DAY=DAY||"all";render();}}}
   function lastIgnBefore(j){for(let k=j-1;k>=1;k--){const q=pages[k-1];if(!q)return undefined;const l=q.rows.filter(r=>r.ign).pop();if(l)return l.ign;}return null;}
   async function checkBoundary(j,slot){
     const p=pages[j-1];if(!p||p.skipped||p.how!=="ocr"||p.bchecked)return;
@@ -722,7 +740,7 @@ async function processFile(file){
       if(pages[i-1]&&pages[i-1].how==="ocr"){await checkBoundary(i,slot);for(let j=i+1;j<=N&&pages[j-1];j++){await checkBoundary(j,slot);if(pages[j-1].rows.some(r=>r.ign))break;}}
       tick();maybePartial();}}));
   }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
-  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  if(cancelFlag){setBusy(false);if(!BATCH)toast("Leitura cancelada");return;}
   // texto embutido em formato desconhecido: nenhuma página saiu pelo texto, então lê as páginas adiadas por OCR
   try{
     const deferred=pages.filter(p=>p&&p.deferred).map(p=>p.pdfPage);
@@ -733,7 +751,7 @@ async function processFile(file){
     }
     for(const p of pages)if(p)delete p.deferred;
   }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
-  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  if(cancelFlag){setBusy(false);if(!BATCH)toast("Leitura cancelada");return;}
   // confere os eventos que caem na primeira linha de uma página (a página anterior é lida em paralelo)
   try{
     const todo=[];let prevIgn=null,first=true;
@@ -752,8 +770,9 @@ async function processFile(file){
         cv.width=cv.height=0;page.cleanup();}}));
     }
   }catch(e){console.error(e);setBusy(false);showError("A leitura parou com um erro: "+esc(e.message||e)+". Recarregue a página e tente de novo.");return;}
-  if(cancelFlag){setBusy(false);toast("Leitura cancelada");return;}
+  if(cancelFlag){setBusy(false);if(!BATCH)toast("Leitura cancelada");return;}
   const fin=assemble(pages,false);
+  if(BATCH){if(fin.rows.length)BATCH.results.push(fin);else showError("não encontrei a tabela do relatório de percurso (colunas Data, Ignição e Posição) em nenhuma página.");return;}
   if(!fin.rows.length){STATE=null;setBusy(false);$("#result").hidden=true;$("#btn-copy").disabled=true;$("#btn-clear").disabled=true;
     showError("Não encontrei a tabela do relatório de percurso (colunas Data, Ignição e Posição) em nenhuma página deste PDF."+(DIAG?' Ele tem texto embutido num formato que eu ainda não conheço. <button type="button" data-diag>Copiar diagnóstico</button> e cole no chat com o Claude para ajustar.':''));
     window.__lastResult={rows:[],failed:true};return;}
@@ -804,6 +823,49 @@ async function processFile(file){
   return {meta,vehicles:multi?vehicles:null,rows,alerts,fileName:file.name,pagesInFile:N,totalReport,mode:mode==="ocr"?(ocrUsed===N?"ocr":"misto"):"texto",rowsPerPage:R,isSample:false,
     seconds:Math.round((performance.now()-t0)/1000),partialOf:partial?{done:list.length,N}:null,notes,fpAll,diag:rows.some(r=>r.how==="texto")?null:DIAG};
   }
+}
+/* junta os resultados de vários PDFs, separados por veículo (placa) */
+function mergeResults(list,batch){
+  if(list.length===1&&!batch)return list[0];
+  const short=n=>n.replace(/\.pdf$/i,"");
+  const groups=new Map(),order=[];let dupes=0;const alerts=[],notes=[],fpAll=[];
+  list.forEach((R,fi)=>{
+    const fn=short(R.fileName),keyOf=v=>v||R.meta.plate||R.meta.vehicle||fn;
+    const metaOf=k=>(R.vehicles&&R.vehicles.find(v=>v.key===k)||{}).meta||R.meta;
+    const byVeh=new Map();
+    for(const r of R.rows){const k=keyOf(r.veh);if(!byVeh.has(k))byVeh.set(k,[]);byVeh.get(k).push({...r,veh:k,fn});}
+    for(const [k,rows] of byVeh){
+      if(!groups.has(k)){groups.set(k,{key:k,meta:{...metaOf(R.vehicles?k:undefined)},chunks:[],files:[]});order.push(k);}
+      const g=groups.get(k);g.chunks.push(rows);if(!g.files.includes(R.fileName))g.files.push(R.fileName);
+      for(const f in g.meta)if(!g.meta[f]&&metaOf(R.vehicles?k:undefined)[f])g.meta[f]=metaOf(R.vehicles?k:undefined)[f];
+    }
+    const vk=x=>keyOf(x.veh);
+    for(const a of R.alerts)alerts.push({...a,veh:vk(a),file:fn});
+    for(const n of (R.notes||[]))notes.push(typeof n==="string"?{veh:keyOf(undefined),t:fn+": "+n}:{veh:vk(n),t:fn+": "+n.t});
+    for(const x of (R.fpAll||[]))if(x&&typeof x==="object")fpAll.push({...x,veh:vk(x)});
+    if(R.partialOf)notes.push({veh:"*",t:fn+": ainda lendo (páginas 1 a "+R.partialOf.done+" de "+R.partialOf.N+")."});
+  });
+  const rows=[],vehicles=[];
+  for(const k of order){const g=groups.get(k);
+    const first=c=>{const r=c.find(x=>x.ts);return r?tsToMs(r.ts):Infinity;};
+    g.chunks.sort((a,b)=>first(a)-first(b));
+    const seen=new Set();let n=0;
+    for(const c of g.chunks){const mine=[]; // repetido só conta entre arquivos diferentes (um registro igual dentro do mesmo PDF é mantido)
+      for(const r of c){if(r.ts){const key=r.ts+"|"+r.ign;if(seen.has(key)){dupes++;n++;continue;}mine.push(key);}rows.push(r);}
+      for(const k2 of mine)seen.add(k2);}
+    if(n)notes.push({veh:k,t:n+" registro(s) repetido(s) entre os arquivos deste veículo foram contados uma vez só."});
+    if(g.chunks.length>1)notes.push({veh:k,t:"Este veículo aparece em "+g.files.length+" arquivo(s): "+g.files.join(", ")+". Os registros foram juntados em ordem de data e hora."});
+    vehicles.push({key:k,meta:{...g.meta,plate:g.meta.plate||"",vehicle:g.meta.vehicle||(g.meta.plate?"":k)},files:g.files});
+  }
+  const modes=[...new Set(list.map(R=>R.mode))];
+  const multi=vehicles.length>1;
+  if(!multi)for(const r of rows)delete r.veh;
+  return {meta:vehicles[0].meta,vehicles:multi?vehicles:null,rows,alerts:multi?alerts:alerts.map(a=>({...a,veh:undefined})),
+    notes:multi?notes:notes.map(n=>n.t),fpAll:multi?fpAll:fpAll.map(x=>({...x,veh:undefined})),
+    fileName:list.length+" arquivos ("+list.map(R=>R.fileName).join(", ")+")",files:list.map(R=>R.fileName),filePages:Object.fromEntries(list.map(R=>[R.fileName,R.pagesInFile])),
+    pagesInFile:list.reduce((s,R)=>s+R.pagesInFile,0),totalReport:Math.max(0,...list.map(R=>R.totalReport||0)),
+    mode:multi?(modes.length===1?modes[0]:"misto"):modeOf(rows),rowsPerPage:list[0].rowsPerPage,isSample:false,seconds:list.reduce((s,R)=>s+(R.seconds||0),0),
+    partialOf:null,batch,diag:list.some(R=>R.diag)?list.find(R=>R.diag).diag:null};
 }
 let DIAG=null;
 function buildDiag(tc,vp,pageNo,tw){
@@ -857,9 +919,11 @@ function curView(){
   const {_v,_b,...S}=STATE,vs=vehList(S);if(!vs)return S;
   if(!vs.some(v=>v.key===VEH&&!v.empty))VEH=(vs.find(v=>!v.empty)||vs[0]).key;
   const fp=(S.fpAll||[]).filter(x=>x&&x.veh===VEH);
-  return {...S,meta:vs.find(v=>v.key===VEH).meta,rows:S.rows.filter(r=>r.veh===VEH),alerts:S.alerts.filter(a=>a.veh===VEH),
-    notes:(S.notes||[]).filter(n=>typeof n==="string"||n.veh===VEH),fpAll:fp,totalReport:Math.max(0,...fp.map(x=>x.tot||0)),pagesVeh:fp.length};
+  const cv=vs.find(v=>v.key===VEH);
+  return {...S,meta:cv.meta,rows:S.rows.filter(r=>r.veh===VEH),alerts:S.alerts.filter(a=>a.veh===VEH),...(S.files&&cv.files?{fileName:cv.files.join(", "),pagesInFile:cv.files.reduce((n,f)=>n+((S.filePages||{})[f]||0),0),mode:modeOf(S.rows.filter(r=>r.veh===VEH))}:{}),
+    notes:(S.notes||[]).filter(n=>typeof n==="string"||n.veh===VEH||n.veh==="*"),fpAll:fp,totalReport:Math.max(0,...fp.map(x=>x.tot||0)),pagesVeh:fp.length};
 }
+function modeOf(rows){const t=rows.some(r=>r.how==="texto"),o=rows.some(r=>r.how!=="texto");return t&&o?"misto":t?"texto":"ocr";}
 function usageStats(rows){
   const {events,usos,first,last}=build(rows);let tot=0;
   for(const u of usos){const a=u.start?u.start.row.t:first.t,b=u.end?u.end.row.t:last.t;tot+=b-a;}
@@ -867,7 +931,7 @@ function usageStats(rows){
 }
 function renderFleet(){
   const S=STATE,vs=vehList(S);$("#fleet").hidden=!vs;if(!vs)return;
-  $("#fleet-n").textContent="· "+vs.length+" veículos";
+  $("#fleet-n").textContent="· "+vs.length+" veículos";$("#fleet h2").firstChild.textContent=S.files&&S.files.length>1?"Veículos nos arquivos ":"Veículos neste arquivo ";
   let h='<thead><tr><th>Placa</th><th class="num">Vezes que ligou</th><th class="num">Tempo ligado</th><th>Registros cobertos</th></tr></thead><tbody>';
   for(const v of vs){const rows=S.rows.filter(r=>r.veh===v.key),st=rows.length?usageStats(rows):null;
     const model=v.meta&&v.meta.vehicle?v.meta.vehicle.replace(v.meta.plate,"").trim():"";
@@ -890,13 +954,13 @@ function render(){
   $("#v-period").textContent=m.period||"—";
   $("#v-covered").textContent=first&&last?first.ts.slice(0,16)+" a "+last.ts.slice(0,16):"—";
   const how={texto:"texto embutido do PDF",ocr:"OCR (PDF em imagem) com dupla leitura",misto:"texto embutido e OCR"}[S.mode];
-  $("#v-source").innerHTML=(S.isSample?'<span class="tag sample">Exemplo já processado</span>':'<span class="tag">Arquivo aberto</span>')+
-    '<span class="mono" style="overflow-wrap:anywhere">'+esc(S.fileName)+'</span><span>· '+S.pagesInFile+' páginas · '+S.rows.length+' registros lidos · leitura por '+how+(S.seconds?' · '+fmtEta(S.seconds):'')+'</span>'+(S.partialOf?'<span class="tag sample">Resultado parcial: páginas 1 a '+S.partialOf.done+' de '+S.partialOf.N+', continua lendo</span>':'');
+  $("#v-source").innerHTML=(S.isSample?'<span class="tag sample">Exemplo já processado</span>':'<span class="tag">'+(S.files&&S.fileName.includes(", ")?"Arquivos abertos":"Arquivo aberto")+'</span>')+
+    '<span class="mono" style="overflow-wrap:anywhere">'+esc(S.fileName)+'</span><span>· '+S.pagesInFile+' páginas · '+S.rows.length+' registros lidos · leitura por '+how+(S.seconds?' · '+fmtEta(S.seconds):'')+'</span>'+(S.partialOf?'<span class="tag sample">Resultado parcial: páginas 1 a '+S.partialOf.done+' de '+S.partialOf.N+', continua lendo</span>':'')+(S.batch?'<span class="tag sample">Resultado parcial: '+S.batch.done+' de '+S.batch.n+' arquivos lidos, continua lendo</span>':'');
   // aviso de PDF parcial
   const fps=(S.fpAll||S.rows.map(r=>r.fp)).map(x=>x&&typeof x==='object'?x.fp:x).filter(Boolean);const minFp=Math.min(...fps),maxFp=Math.max(...fps);
-  const partial=!S.partialOf&&S.totalReport&&(minFp>1||maxFp<S.totalReport);
+  const partial=!S.partialOf&&!S.batch&&S.totalReport&&(minFp>1||maxFp<S.totalReport);
   $("#partial").hidden=!partial;
-  if(partial)$("#partial-text").innerHTML="<b>Este PDF tem só as páginas "+minFp+" a "+maxFp+" de "+S.totalReport+" do relatório.</b> Os eventos abaixo vão de "+esc(first.ts.slice(0,16))+" a "+esc(last.ts.slice(0,16))+". Para ver o período inteiro, abra o PDF completo; não há limite de páginas aqui.";
+  if(partial)$("#partial-text").innerHTML="<b>"+(S.files&&S.fileName.includes(", ")?"Os PDFs deste veículo têm":"Este PDF tem")+" só as páginas "+minFp+" a "+maxFp+" de "+S.totalReport+" do relatório.</b> Os eventos abaixo vão de "+esc(first.ts.slice(0,16))+" a "+esc(last.ts.slice(0,16))+". Para ver o período inteiro, abra o PDF completo; não há limite de páginas aqui.";
   // resumo
   const done=usos.filter(u=>u.start&&u.end&&!u.start.atStart);
   const starts=events.filter(e=>e.type==="L"&&!e.atStart).length;
@@ -924,7 +988,7 @@ function render(){
 }
 function eventIssues(events,S){
   const out=[];
-  for(const e of events){const r=e.row,where="pág. "+r.p+", linha "+r.k;
+  for(const e of events){const r=e.row,where=(r.fn?r.fn+", ":"")+"pág. "+r.p+", linha "+r.k;
     if(r.v===0)out.push({e,msg:where+" ("+r.ts+"): as leituras não bateram em "+describeDiff(r)+". Confira no PDF."});
     if(e.uncertain)out.push({e,msg:where+" ("+r.ts+"): há registro ilegível logo antes; a ignição pode ter mudado um pouco antes deste horário."});
     if(r.lat==null)out.push({e,msg:where+" ("+r.ts+"): coordenada ilegível."});
@@ -975,7 +1039,7 @@ function renderEventos(events){
     if(d!==curDay){curDay=d;h+='<tr class="day-row"><td colspan="5">'+weekday(d)+", "+d+'</td></tr>';}
     n++;
     const pill=e.type==="L"?'<span class="pill on">'+(e.atStart?"Ligado (início do arquivo)":"Ligou")+'</span>':'<span class="pill off">Desligou</span>';
-    h+='<tr class="r"><td data-l="Hora"><span class="t">'+timeOf(r.ts)+'</span></td><td data-l="Evento"><div>'+pill+'</div></td><td data-l="Local"><div>'+locCell(r)+'</div></td><td data-l="No PDF"><span class="src">pág. '+r.p+(r.fp&&r.fp!==r.p?' (rel. '+r.fp+')':'')+', linha '+r.k+'</span></td><td data-l="Conferência"><div>'+checkCell(r)+'</div></td></tr>';
+    h+='<tr class="r"><td data-l="Hora"><span class="t">'+timeOf(r.ts)+'</span></td><td data-l="Evento"><div>'+pill+'</div></td><td data-l="Local"><div>'+locCell(r)+'</div></td><td data-l="No PDF"><span class="src">'+(r.fn?esc(r.fn)+'<br>':'')+'pág. '+r.p+(r.fp&&r.fp!==r.p?' (rel. '+r.fp+')':'')+', linha '+r.k+'</span></td><td data-l="Conferência"><div>'+checkCell(r)+'</div></td></tr>';
   }
   if(!n)h+='<tr><td colspan="5" class="empty">Nenhum evento encontrado neste período.</td></tr>';
   $("#tbl").innerHTML=h+"</tbody>";
@@ -983,19 +1047,19 @@ function renderEventos(events){
 function renderQuality(S,events,issues){
   const lines=[];
   const ver=events.filter(e=>e.row.v===1).length;
-  if(S.mode==="texto")lines.push('<li class="ok-line">'+S.rows.length+' registros lidos do texto embutido do PDF, em '+(S.pagesVeh?S.pagesVeh+' páginas deste veículo (de '+S.pagesInFile+' no arquivo)':S.pagesInFile+' páginas')+'.</li>');
+  if(S.mode==="texto")lines.push('<li class="ok-line">'+S.rows.length+' registros lidos do texto embutido do PDF, em '+(S.pagesVeh?S.pagesVeh+' páginas deste veículo (de '+S.pagesInFile+(S.files?' nos arquivos)':' no arquivo)'):S.pagesInFile+' páginas')+'.</li>');
   else lines.push('<li class="ok-line">'+S.rows.length+' registros lidos em '+S.pagesInFile+' páginas. '+ver+' de '+events.length+' eventos confirmados por uma segunda leitura independente de data, hora, ignição e coordenada.</li>');
   const seq=checkSequence(S.rows);
   lines.push(seq?'<li class="w">'+seq+'</li>':'<li class="ok-line">Horários em ordem crescente do primeiro ao último registro, sem registros fora de ordem.</li>');
   for(const x of issues)lines.push('<li class="w">'+x.msg+'</li>');
   if(S.diag)lines.push('<li class="w">Este PDF tem texto embutido, mas não reconheci a tabela nele e li por OCR, que é bem mais lento. <button type="button" data-diag>Copiar diagnóstico</button> e cole no chat com o Claude para ajustar a leitura direta.</li>');
   for(const n of (S.notes||[]))lines.push('<li>'+esc(typeof n==="string"?n:n.t)+'</li>');
-  for(const a of S.alerts)lines.push('<li class="w">Pág. '+a.page+(a.line?', linha '+a.line:'')+': '+a.msg+'.</li>');
+  for(const a of S.alerts)lines.push('<li class="w">'+(a.file?esc(a.file)+', pág. ':'Pág. ')+a.page+(a.line?', linha '+a.line:'')+': '+a.msg+'.</li>');
   if(!issues.length&&!S.alerts.length&&!seq)lines.push('<li class="ok-line">Nenhum alerta. Todas as páginas tiveram '+S.rowsPerPage+' registros lidos'+(S.totalReport?', e a numeração do relatório está contínua':'')+'.</li>');
   $("#q-body").innerHTML="<ul>"+lines.join("")+"</ul>";
 }
 function checkSequence(rows){
-  let prev=null;for(const r of rows){if(!r.ts)continue;const t=tsToMs(r.ts);if(prev&&t<prev.t)return "Registro fora de ordem na pág. "+r.p+", linha "+r.k+" ("+r.ts+" vem depois de "+prev.ts+"). Confira no PDF.";prev={t,ts:r.ts};}
+  let prev=null;for(const r of rows){if(!r.ts)continue;const t=tsToMs(r.ts);if(prev&&t<prev.t)return "Registro fora de ordem "+(r.fn?"em "+r.fn+", ":"na ")+"pág. "+r.p+", linha "+r.k+" ("+r.ts+" vem depois de "+prev.ts+"). Confira no PDF.";prev={t,ts:r.ts};}
   return null;
 }
 
@@ -1098,13 +1162,14 @@ async function downloadCsv(fleet){
 }
 
 /* ---------------- interface ---------------- */
+window.setBusy=setBusy;window.showError=showError;
 function setBusy(b){$("#progress").hidden=!b;$("#drop").hidden=b;$("#btn-open").disabled=b;}
-function progress(f,title,detail,eta){$("#pg-bar").style.width=Math.round(f*100)+"%";$("#pg-meter").setAttribute("aria-valuenow",Math.round(f*100));$("#pg-title").textContent=title;$("#pg-detail").textContent=detail;$("#pg-eta").textContent=eta;}
+function progress(f,title,detail,eta){if(BATCH){f=(BATCH.i+Math.min(1,f))/BATCH.n;title="Arquivo "+(BATCH.i+1)+" de "+BATCH.n+" · "+title;detail=BATCH.name+(detail?" · "+detail:"");}$("#pg-bar").style.width=Math.round(f*100)+"%";$("#pg-meter").setAttribute("aria-valuenow",Math.round(f*100));$("#pg-title").textContent=title;$("#pg-detail").textContent=detail;$("#pg-eta").textContent=eta;}
 function showError(msg){$("#error").hidden=false;$("#error-text").innerHTML=msg;}
 function hideError(){$("#error").hidden=true;}
 $("#btn-open").onclick=()=>$("#file").click();
 $("#btn-open2").onclick=()=>$("#file").click();
-$("#file").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)processFile(f);};
+$("#file").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)processFiles(fs);};
 $("#btn-cancel").onclick=()=>{cancelFlag=true;$("#pg-title").textContent="Cancelando…";};
 $("#btn-copy").onclick=copyTable;
 function clearAll(){
@@ -1126,7 +1191,7 @@ $("#days").onclick=e=>{const b=e.target.closest("[data-day]");if(b){DAY=b.datase
 const dz=$("#drop");
 ["dragenter","dragover"].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();dz.classList.add("over");}));
 ["dragleave","drop"].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();if(t==="drop"||e.target===document.documentElement)dz.classList.remove("over");}));
-document.addEventListener("drop",e=>{const f=e.dataTransfer&&e.dataTransfer.files[0];if(f&&$("#progress").hidden)processFile(f);});
+document.addEventListener("drop",e=>{const fs=e.dataTransfer?[...e.dataTransfer.files]:[];if(fs.length&&$("#progress").hidden)processFiles(fs);});
 
 // download pela plataforma, quando disponível
 (async()=>{try{const d=window.claude&&window.claude.use?await window.claude.use("downloads"):null;if(d){DL=d;$("#btn-csv").hidden=false;$("#btn-csv").disabled=!STATE;}}catch(_){}})();
